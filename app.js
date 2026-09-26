@@ -1,0 +1,1281 @@
+/* =========================================================
+   Chill n Sunset - Mini Gath Riot Balikpapan
+   Aplikasi Undian  |  app.js
+   Alur: pilih hadiah -> isi jumlah -> undi -> stop ->
+         (pengundian lagi)  atau  (pengundian selesai)
+   ========================================================= */
+(function () {
+  'use strict';
+
+  const LS_STATE = 'undian_riot_bpp_state_v2';
+
+  /* ---------- STATE ---------- */
+  const state = {
+    raw: [],                 // daftar mentah peserta {name,g,t,u}
+    participants: [],        // setelah dedupe + dirapikan
+    dedupe: false,
+    hadiah: ['Hadiah Utama', 'Hadiah Hiburan', 'Doorprize'],
+    sesi: [],                // [{prize, winners:[{name}]}] hasil yang sudah dikunci
+    current: null,           // sesi berjalan {prize, count, winners:[]}
+    phase: 'setup'           // setup | rolling | stopping | hasil
+  };
+
+  /* ---------- DOM ---------- */
+  const $ = (id) => document.getElementById(id);
+  const el = {
+    setupPanel: $('setupPanel'), setupToggle: $('setupToggle'),
+    fileInput: $('fileInput'), fileDrop: $('fileDrop'),
+    btnTemplate: $('btnTemplate'), btnManual: $('btnManual'), btnManage: $('btnManage'),
+    btnClearPeserta: $('btnClearPeserta'),
+    manualBox: $('manualBox'), manualText: $('manualText'), btnManualSave: $('btnManualSave'),
+    chkDedupe: $('chkDedupe'), pesertaInfo: $('pesertaInfo'), pesertaList: $('pesertaList'),
+
+    undiForm: $('undiForm'), pilihHadiah: $('pilihHadiah'), jumlahUndi: $('jumlahUndi'),
+    btnKelolaHadiah: $('btnKelolaHadiah'), hadiahBox: $('hadiahBox'), hadiahList: $('hadiahList'),
+    hadiahBaru: $('hadiahBaru'), btnTambahHadiah: $('btnTambahHadiah'),
+    warnLine: $('warnLine'), poolNote: $('poolNote'),
+
+    stage: $('stage'), stagePrize: $('stagePrize'), slots: $('slotsUndian'),
+    statusLine: $('statusLine'), hint: $('hint'),
+    btnStart: $('btnStart'), btnStop: $('btnStop'), btnLagi: $('btnLagi'), btnSelesai: $('btnSelesai'),
+    btnSound: $('btnSound'), btnFull: $('btnFull'),
+    riwayat: $('riwayat'), hasilAkhir: $('hasilAkhir'),
+    btnReset: $('btnReset'), btnSelesaiBawah: $('btnSelesaiBawah'),
+    modal: $('modal'), modalTitle: $('modalTitle'), modalText: $('modalText'),
+    modalYes: $('modalYes'), modalNo: $('modalNo'),
+    confetti: $('confetti')
+  };
+
+  /* =========================================================
+     AUDIO - drum roll & fanfare disintesis (tanpa file audio)
+     ========================================================= */
+  const AudioFX = (function () {
+    let ctx = null, noiseBuf = null, timer = null, enabled = true, rumble = null;
+
+    function ensure() {
+      if (!ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        ctx = new AC();
+        const len = Math.floor(ctx.sampleRate * 2);
+        noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+        const d = noiseBuf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      }
+      if (ctx.state === 'suspended') ctx.resume();
+      return ctx;
+    }
+
+    function snare(t, gain, freq, dur) {
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuf; src.loop = true;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = 1.1;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(gain, t + 0.003);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      src.connect(bp).connect(g).connect(ctx.destination);
+      src.start(t, Math.random() * 1.5);
+      src.stop(t + dur + 0.03);
+    }
+
+    function startRoll() {
+      if (!enabled || !ensure()) return;
+      stopRoll();
+      let next = ctx.currentTime + 0.04;
+      let gap = 0.042;
+      rumble = ctx.createOscillator();
+      const rg = ctx.createGain();
+      rumble.type = 'sine'; rumble.frequency.setValueAtTime(48, ctx.currentTime);
+      rg.gain.setValueAtTime(0.0001, ctx.currentTime);
+      rg.gain.linearRampToValueAtTime(0.09, ctx.currentTime + 2.5);
+      rumble.connect(rg).connect(ctx.destination);
+      rumble.start();
+      rumble._g = rg;
+
+      timer = setInterval(function () {
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        while (next < now + 0.22) {
+          snare(next, 0.14 + Math.random() * 0.07, 1500 + Math.random() * 1100, 0.07);
+          next += gap;
+        }
+        gap = Math.max(0.021, gap * 0.985);
+      }, 60);
+    }
+
+    function stopRoll() {
+      if (timer) { clearInterval(timer); timer = null; }
+      if (rumble) {
+        try {
+          rumble._g.gain.cancelScheduledValues(ctx.currentTime);
+          rumble._g.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.05);
+          rumble.stop(ctx.currentTime + 0.4);
+        } catch (e) { /* noop */ }
+        rumble = null;
+      }
+    }
+
+    function tick(high) {
+      if (!enabled || !ensure()) return;
+      snare(ctx.currentTime, high ? 0.26 : 0.18, high ? 2600 : 1900, high ? 0.12 : 0.08);
+    }
+
+    function cymbal(t, gain, dur, out) {
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuf; src.loop = true;
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 800;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(gain, t + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      src.connect(hp).connect(g).connect(out || ctx.destination);
+      src.start(t); src.stop(t + dur + 0.1);
+    }
+
+    function kick(t, out) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(160, t);
+      o.frequency.exponentialRampToValueAtTime(44, t + 0.18);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.75, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+      o.connect(g).connect(out || ctx.destination);
+      o.start(t); o.stop(t + 0.48);
+    }
+
+    function chord(freqs, t, dur, gain, type, out) {
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(5200, t);
+      lp.frequency.exponentialRampToValueAtTime(1400, t + dur);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(gain, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      lp.connect(g).connect(out || ctx.destination);
+      freqs.forEach(function (f) {
+        const o = ctx.createOscillator();
+        o.type = type || 'sawtooth';
+        o.frequency.value = f;
+        o.connect(lp);
+        o.start(t); o.stop(t + dur + 0.05);
+      });
+    }
+
+    // "jeng… jeng… jeng!" lalu akor kemenangan
+    function fanfare() {
+      if (!enabled || !ensure()) return;
+      const t = ctx.currentTime + 0.02;
+
+      // kompresor + penguat: fanfare terdengar jelas tanpa pecah
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -18; comp.knee.value = 24;
+      comp.ratio.value = 6; comp.attack.value = 0.004; comp.release.value = 0.25;
+      const master = ctx.createGain();
+      master.gain.value = 1.5;
+      comp.connect(master).connect(ctx.destination);
+
+      [{ off: 0, f: [130.81, 196, 261.63] },
+       { off: 0.30, f: [146.83, 220, 293.66] },
+       { off: 0.60, f: [164.81, 246.94, 329.63] }].forEach(function (j) {
+        chord(j.f, t + j.off, 0.32, 0.3, 'sawtooth', comp);
+        kick(t + j.off, comp);
+        cymbal(t + j.off, 0.16, 0.22, comp);
+      });
+      const fin = t + 1.0;
+      chord([174.61, 261.63, 349.23, 440, 523.25], fin, 2.8, 0.34, 'sawtooth', comp);
+      kick(fin, comp);
+      cymbal(fin, 0.4, 2.5, comp);
+      [523.25, 659.25, 783.99, 1046.5].forEach(function (f, i) {
+        const o = ctx.createOscillator(), og = ctx.createGain();
+        o.type = 'triangle'; o.frequency.value = f;
+        const st = fin + 0.12 + i * 0.075;
+        og.gain.setValueAtTime(0.0001, st);
+        og.gain.linearRampToValueAtTime(0.2, st + 0.02);
+        og.gain.exponentialRampToValueAtTime(0.0001, st + 1.6);
+        o.connect(og).connect(comp);
+        o.start(st); o.stop(st + 1.65);
+      });
+    }
+
+    return {
+      startRoll: startRoll, stopRoll: stopRoll, tick: tick, fanfare: fanfare,
+      toggle: function () { enabled = !enabled; if (!enabled) stopRoll(); return enabled; },
+      unlock: ensure
+    };
+  })();
+
+  /* =========================================================
+     KONFETI & PITA
+     ========================================================= */
+  const Confetti = (function () {
+    const cv = el.confetti, cx = cv.getContext('2d');
+    let parts = [], raf = null;
+    const colors = ['#ffd479', '#ff8a3d', '#ff4d6d', '#fff4e6', '#c77dff', '#ffe9a8'];
+    function resize() { cv.width = innerWidth; cv.height = innerHeight; }
+    addEventListener('resize', resize); resize();
+
+    function burst(n) {
+      n = n || 150;
+      for (let i = 0; i < n; i++) {
+        parts.push({
+          t: 'c',
+          x: Math.random() * cv.width,
+          y: -20 - Math.random() * cv.height * 0.4,
+          w: 6 + Math.random() * 8, h: 8 + Math.random() * 12,
+          vy: 2 + Math.random() * 4, vx: -1.6 + Math.random() * 3.2,
+          rot: Math.random() * Math.PI, vr: -0.12 + Math.random() * 0.24,
+          c: colors[(Math.random() * colors.length) | 0]
+        });
+      }
+      if (!raf) raf = requestAnimationFrame(tick);
+    }
+
+    function ribbons(n) {
+      n = n || 40;
+      for (let i = 0; i < n; i++) {
+        const kiri = i % 2 === 0;
+        const kuat = 13 + Math.random() * 9;
+        const sudut = (52 + Math.random() * 26) * Math.PI / 180;
+        parts.push({
+          t: 'r',
+          x: kiri ? -20 : cv.width + 20,
+          y: cv.height + 10,
+          vx: (kiri ? 1 : -1) * Math.cos(sudut) * kuat,
+          vy: -Math.sin(sudut) * kuat,
+          w: 4 + Math.random() * 5,
+          h: 46 + Math.random() * 70,
+          rot: Math.random() * Math.PI,
+          vr: -0.06 + Math.random() * 0.12,
+          fase: Math.random() * Math.PI * 2,
+          amp: 4 + Math.random() * 7,
+          c: colors[(Math.random() * colors.length) | 0]
+        });
+      }
+      if (!raf) raf = requestAnimationFrame(tick);
+    }
+
+    function tick() {
+      cx.clearRect(0, 0, cv.width, cv.height);
+      parts = parts.filter(function (p) {
+        return p.y < cv.height + 160 && p.x > -260 && p.x < cv.width + 260;
+      });
+      parts.forEach(function (p) {
+        cx.save();
+        if (p.t === 'r') {
+          p.x += p.vx; p.y += p.vy;
+          p.vy += 0.24; p.vx *= 0.985;
+          p.rot += p.vr; p.fase += 0.22;
+          cx.translate(p.x, p.y);
+          cx.rotate(p.rot + Math.sin(p.fase * 0.5) * 0.25);
+          cx.beginPath();
+          const seg = 7;
+          for (let s = 0; s <= seg; s++) {
+            const yy = -p.h / 2 + (p.h / seg) * s;
+            const xx = Math.sin(p.fase + s * 0.8) * p.amp;
+            if (s) cx.lineTo(xx, yy); else cx.moveTo(xx, yy);
+          }
+          cx.strokeStyle = p.c; cx.lineWidth = p.w; cx.lineCap = 'round';
+          cx.globalAlpha = .92;
+          cx.stroke();
+        } else {
+          p.x += p.vx; p.y += p.vy; p.rot += p.vr; p.vy += 0.035;
+          cx.translate(p.x, p.y); cx.rotate(p.rot);
+          cx.fillStyle = p.c; cx.globalAlpha = .9;
+          cx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        }
+        cx.restore();
+      });
+      if (parts.length) { raf = requestAnimationFrame(tick); }
+      else { cx.clearRect(0, 0, cv.width, cv.height); raf = null; }
+    }
+    function clear() { parts = []; cx.clearRect(0, 0, cv.width, cv.height); }
+    return { burst: burst, ribbons: ribbons, clear: clear };
+  })();
+
+  /* =========================================================
+     UTIL
+     ========================================================= */
+  function randInt(max) {
+    if (max <= 0) return 0;
+    if (window.crypto && crypto.getRandomValues) {
+      const limit = Math.floor(4294967296 / max) * max;
+      const buf = new Uint32Array(1);
+      let x;
+      do { crypto.getRandomValues(buf); x = buf[0]; } while (x >= limit);
+      return x % max;
+    }
+    return Math.floor(Math.random() * max);
+  }
+  function sampleUnique(arr, n) {
+    const a = arr.slice(), out = [];
+    n = Math.min(n, a.length);
+    for (let i = 0; i < n; i++) {
+      const j = i + randInt(a.length - i);
+      const t = a[i]; a[i] = a[j]; a[j] = t;
+      out.push(a[i]);
+    }
+    return out;
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  // "pak trish" / "PAK TRISH" -> "Pak Trish"
+  function rapikanNama(s) {
+    s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase();
+    try {
+      return s.replace(/(^|[^\p{L}\p{N}])([\p{L}\p{N}])/gu, function (m, a, b) { return a + b.toUpperCase(); });
+    } catch (e) {
+      return s.replace(/(^|[^a-z0-9])([a-z0-9])/g, function (m, a, b) { return a + b.toUpperCase(); });
+    }
+  }
+  function showError(msg) {
+    el.pesertaInfo.textContent = '⚠ ' + msg;
+    el.pesertaInfo.classList.add('err');
+  }
+  function warn(msg) {
+    el.warnLine.textContent = '⚠ ' + msg;
+    el.warnLine.classList.remove('hidden');
+    el.warnLine.classList.remove('shake');
+    void el.warnLine.offsetWidth;
+    el.warnLine.classList.add('shake');
+  }
+  function clearWarn() { el.warnLine.classList.add('hidden'); }
+
+  /* ---------- dialog konfirmasi ---------- */
+  let modalAksi = null;
+  function konfirmasi(judul, teks, tombol, aksi) {
+    el.modalTitle.textContent = judul;
+    el.modalText.textContent = teks;
+    el.modalYes.textContent = tombol;
+    modalAksi = aksi;
+    el.modal.classList.remove('hidden');
+  }
+  el.modalNo.addEventListener('click', function () { el.modal.classList.add('hidden'); modalAksi = null; });
+  el.modal.addEventListener('click', function (e) { if (e.target === el.modal) el.modalNo.click(); });
+  el.modalYes.addEventListener('click', function () {
+    el.modal.classList.add('hidden');
+    const a = modalAksi; modalAksi = null;
+    if (a) a();
+  });
+
+  /* =========================================================
+     PENYIMPANAN
+     ========================================================= */
+  function save() {
+    try {
+      const lama = JSON.parse(localStorage.getItem(LS_STATE) || '{}') || {};
+      lama.raw = state.raw;
+      lama.dedupe = state.dedupe;
+      lama.hadiah = state.hadiah;
+      lama.sesi = state.sesi;
+      lama.savedAt = Date.now();
+      localStorage.setItem(LS_STATE, JSON.stringify(lama));
+    } catch (e) { /* noop */ }
+  }
+  function load() {
+    try {
+      const s = JSON.parse(localStorage.getItem(LS_STATE) || 'null');
+      if (!s) return;
+      state.raw = (s.raw || []).map(function (p) {
+        return {
+          name: rapikanNama(p.name),
+          g: p.g === 'P' ? 'P' : 'L',
+          t: p.t === false ? false : true,
+          u: p.u === false ? false : true,
+          h: p.h === true,
+          jam: typeof p.jam === 'string' ? p.jam : ''
+        };
+      });
+      state.dedupe = !!s.dedupe;
+      if (Array.isArray(s.hadiah) && s.hadiah.length) state.hadiah = s.hadiah.slice();
+      if (Array.isArray(s.sesi)) {
+        state.sesi = s.sesi.map(function (x) {
+          return {
+            prize: x.prize,
+            winners: (x.winners || []).map(function (w) { return { name: rapikanNama(w.name) }; })
+          };
+        });
+      }
+    } catch (e) { /* noop */ }
+  }
+
+  /* =========================================================
+     PESERTA
+     ========================================================= */
+  function applyDedupe() {
+    const list = state.raw.map(function (p, i) {
+      return {
+        name: rapikanNama(p.name),
+        g: p.g === 'P' ? 'P' : 'L',
+        t: p.t === false ? false : true,
+        u: p.u === false ? false : true,
+        h: p.h === true,                 // hadir; belum diabsen = false
+        jam: typeof p.jam === 'string' ? p.jam : '',
+        _i: i
+      };
+    });
+    if (!state.dedupe) { state.participants = list; return; }
+    const seen = Object.create(null);
+    state.participants = list.filter(function (p) {
+      const k = p.name.toLowerCase();
+      if (seen[k]) return false;
+      seen[k] = 1; return true;
+    });
+  }
+
+  // kata pada nama hadiah yang jelas bukan nama orang
+  const KATA_UMUM = {
+    dari: 1, oleh: 1, untuk: 1, dan: 1, buat: 1, by: 1, from: 1, for: 1, and: 1, the: 1,
+    hadiah: 1, prize: 1, doorprize: 1, door: 1, grand: 1, main: 1, utama: 1, hiburan: 1,
+    sponsor: 1, sponsored: 1, persembahan: 1, voucher: 1, kupon: 1, paket: 1, bonus: 1,
+    spesial: 1, special: 1
+  };
+
+  const RE_BUKAN_HURUF = (function () {
+    try { return new RegExp('[^\\p{L}\\p{N}]+', 'gu'); }
+    catch (e) { return /[^a-z0-9]+/g; }
+  })();
+
+  // pecah teks jadi kata yang layak dianggap nama (>=3 huruf, bukan kata umum)
+  function kataNama(teks) {
+    return String(teks == null ? '' : teks).toLowerCase()
+      .replace(RE_BUKAN_HURUF, ' ').trim().split(' ')
+      .filter(function (k) { return k.length >= 3 && !KATA_UMUM[k]; });
+  }
+
+  // nama peserta muncul di nama hadiah? mis. "Ahmad" vs "Baju Kalcer Dari Ahmad"
+  // — pemberi hadiah tidak boleh memenangkan hadiahnya sendiri
+  function namaAdaDiHadiah(nama, prize) {
+    if (!prize) return false;
+    const kata = Object.create(null);
+    kataNama(prize).forEach(function (k) { kata[k] = 1; });
+    return kataNama(nama).some(function (k) { return kata[k]; });
+  }
+
+  function jmlHadir() {
+    return state.participants.filter(function (p) { return p.h; }).length;
+  }
+
+  // peserta yang boleh diundi: HADIR, ikut undian, belum pernah menang,
+  // dan (bila hadiah disebut) namanya tidak tercantum di nama hadiah itu
+  function poolUndian(prize) {
+    const menang = Object.create(null);
+    state.sesi.forEach(function (s) {
+      s.winners.forEach(function (w) { menang[w.name.toLowerCase()] = 1; });
+    });
+    if (state.current) {
+      state.current.winners.forEach(function (w) { menang[w.name.toLowerCase()] = 1; });
+    }
+    return state.participants.filter(function (p) {
+      return p.h && p.u !== false && !menang[p.name.toLowerCase()] &&
+             !namaAdaDiHadiah(p.name, prize);
+    });
+  }
+
+  // nama yang ditahan khusus untuk hadiah ini (untuk diberitahukan ke operator)
+  function namaDitahan(prize) {
+    if (!prize) return [];
+    return poolUndian('').filter(function (p) { return namaAdaDiHadiah(p.name, prize); })
+      .map(function (p) { return p.name; });
+  }
+
+  function setParticipants(list, sourceLabel) {
+    state.raw = list;
+    renderPeserta(sourceLabel);
+    save();
+  }
+
+  function renderPeserta(sourceLabel) {
+    applyDedupe();
+    el.pesertaInfo.classList.remove('err');
+    const n = state.participants.length;
+    // baris info peserta sengaja dikosongkan — hanya dipakai untuk pesan galat
+    el.pesertaInfo.textContent = '';
+    el.pesertaList.innerHTML = state.participants.slice(0, 400).map(function (p) {
+      return '<span class="pchip' + (p.u === false ? ' nonundi' : '') + '"' +
+        (p.u === false ? ' title="Tidak ikut undian"' : '') + '>' + esc(p.name) +
+        '<button class="px" data-i="' + p._i + '" title="Hapus nama ini">×</button></span>';
+    }).join('') + (n > 400 ? '<span class="pchip more">+' + (n - 400) + ' lainnya… buka Kelola Peserta</span>' : '');
+    refresh();
+  }
+
+  function removeParticipant(i) {
+    const p = state.raw[i];
+    if (!p) return;
+    if (state.dedupe) {
+      const key = rapikanNama(p.name).toLowerCase();
+      state.raw = state.raw.filter(function (x) { return rapikanNama(x.name).toLowerCase() !== key; });
+    } else {
+      state.raw.splice(i, 1);
+    }
+    renderPeserta('');
+    save();
+  }
+
+  /* ---- baca Excel / CSV ---- */
+  function handleFile(file) {
+    if (!file) return;
+    const name = file.name.toLowerCase();
+    const reader = new FileReader();
+
+    if (name.endsWith('.csv')) {
+      reader.onload = function (e) { parseRows(csvToRows(e.target.result), file.name); };
+      reader.readAsText(file, 'UTF-8');
+      return;
+    }
+    if (typeof XLSX === 'undefined') {
+      showError('Pustaka Excel gagal dimuat (butuh internet). Gunakan file .csv atau Input Manual.');
+      return;
+    }
+    reader.onload = function (e) {
+      try {
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: '' });
+        parseRows(rows, file.name);
+      } catch (err) {
+        showError('Gagal membaca file Excel: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function csvToRows(text) {
+    const first = text.split('\n')[0] || '';
+    const sep = first.split(';').length > first.split(',').length ? ';' : ',';
+    return text.replace(/\r/g, '').split('\n').filter(function (l) { return l.trim() !== ''; })
+      .map(function (l) { return l.split(sep).map(function (c) { return c.replace(/^"|"$/g, '').trim(); }); });
+  }
+
+  function parseRows(rows, fname) {
+    if (!rows || !rows.length) { showError('File kosong atau tidak terbaca.'); return; }
+
+    let nameCol = 0, genderCol = -1, timCol = -1, undiCol = -1, start = 0;
+    const head = rows[0].map(function (c) { return String(c).toLowerCase().trim(); });
+    const hasHeader = head.some(function (c) { return /nama|name|peserta|participant/.test(c); });
+
+    if (hasHeader) {
+      head.forEach(function (c, i) {
+        if (nameCol === 0 && /nama|name|peserta|participant/.test(c)) nameCol = i;
+        if (genderCol < 0 && /^(jk|j\.k|gender|kelamin|jenis kelamin|l\/p|p\/l|sex)$/.test(c)) genderCol = i;
+        if (timCol < 0 && /^(ikut tim|status tim|tim|ok tim)$/.test(c)) timCol = i;
+        if (undiCol < 0 && /^(undian|ikut undian|undi|status undian|ok undian)$/.test(c)) undiCol = i;
+      });
+      start = 1;
+    } else {
+      const r0 = rows[0] || [];
+      for (let i = 0; i < r0.length; i++) {
+        const v = String(r0[i] == null ? '' : r0[i]).trim();
+        if (v && !/^\d+[.)]?$/.test(v)) { nameCol = i; break; }
+      }
+    }
+
+    const TIDAK = /^(not|not ok|notok|non|tidak|tdk|no|n|x|0|bertugas|panitia)$/i;
+    const list = [];
+    for (let i = start; i < rows.length; i++) {
+      const r = rows[i] || [];
+      const nm = String(r[nameCol] == null ? '' : r[nameCol]).trim();
+      if (!nm) continue;
+      if (/^(no|nomor|#)$/i.test(nm)) continue;
+      let g = 'L';
+      if (genderCol >= 0) {
+        const v = String(r[genderCol] == null ? '' : r[genderCol]).trim();
+        if (/^(p|w|f|perempuan|wanita|female|cewe|cewek)$/i.test(v)) g = 'P';
+      }
+      let t = true;
+      if (timCol >= 0 && TIDAK.test(String(r[timCol] == null ? '' : r[timCol]).trim())) t = false;
+      let u = true;
+      if (undiCol >= 0 && TIDAK.test(String(r[undiCol] == null ? '' : r[undiCol]).trim())) u = false;
+      list.push({ name: rapikanNama(nm), g: g, t: t, u: u });
+    }
+    if (!list.length) { showError('Tidak ada nama yang ditemukan di file.'); return; }
+    setParticipants(list, fname);
+  }
+
+  /* =========================================================
+     DAFTAR HADIAH
+     ========================================================= */
+  function renderHadiah() {
+    const terpilih = el.pilihHadiah.value;
+    el.pilihHadiah.innerHTML = '<option value="">- Pilih Hadiah -</option>' +
+      state.hadiah.map(function (h) {
+        return '<option value="' + esc(h) + '">' + esc(h) + '</option>';
+      }).join('');
+    if (terpilih && state.hadiah.indexOf(terpilih) >= 0) el.pilihHadiah.value = terpilih;
+
+    el.hadiahList.innerHTML = state.hadiah.map(function (h, i) {
+      return '<div class="hrow" data-i="' + i + '">' +
+        '<input type="text" class="hname" value="' + esc(h) + '">' +
+        '<button class="btn ghost tiny hdel" title="Hapus hadiah">✖</button>' +
+      '</div>';
+    }).join('') || '<p class="mini-note">Belum ada hadiah. Tambahkan di bawah.</p>';
+  }
+
+  el.btnKelolaHadiah.addEventListener('click', function () {
+    el.hadiahBox.classList.toggle('hidden');
+    if (!el.hadiahBox.classList.contains('hidden')) el.hadiahBaru.focus();
+  });
+  el.hadiahList.addEventListener('input', function (e) {
+    const inp = e.target.closest('.hname');
+    if (!inp) return;
+    const i = parseInt(inp.parentNode.dataset.i, 10);
+    state.hadiah[i] = inp.value;
+    save();
+  });
+  el.hadiahList.addEventListener('change', function () { renderHadiah(); });
+  el.hadiahList.addEventListener('click', function (e) {
+    const b = e.target.closest('.hdel');
+    if (!b) return;
+    state.hadiah.splice(parseInt(b.parentNode.dataset.i, 10), 1);
+    save(); renderHadiah();
+  });
+  function tambahHadiah() {
+    const v = el.hadiahBaru.value.trim();
+    if (!v) return;
+    state.hadiah.push(v);
+    el.hadiahBaru.value = '';
+    save(); renderHadiah();
+    el.pilihHadiah.value = v;
+    clearWarn();
+  }
+  el.btnTambahHadiah.addEventListener('click', tambahHadiah);
+  el.hadiahBaru.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); tambahHadiah(); }
+  });
+
+  /* =========================================================
+     TAMPILAN UMUM
+     ========================================================= */
+  function refresh() {
+    const prize = el.pilihHadiah.value.trim();
+    const ditahan = namaDitahan(prize);
+    const belum = state.participants.length - jmlHadir();
+    el.poolNote.textContent = state.participants.length
+      ? poolUndian(prize).length + ' nama masih ada di kotak undian' +
+        (belum ? ' · 🚷 ' + belum + ' belum hadir (tidak diikutkan)' : '') +
+        (state.sesi.length ? ' · ' + state.sesi.length + ' hadiah sudah diundi' : '') +
+        (ditahan.length ? ' · 🚫 ' + ditahan.join(', ') +
+          ' tidak ikut karena namanya ada di nama hadiah ini' : '')
+      : 'Upload daftar peserta dulu di panel Data Peserta.';
+    renderRiwayat();
+  }
+
+  // nomor urut awal untuk sesi ke-idx (lanjutan dari sesi sebelumnya berhadiah sama)
+  function awalSesi(idx) {
+    const k = String(state.sesi[idx].prize).trim().toLowerCase();
+    let a = 0;
+    for (let i = 0; i < idx; i++) {
+      if (String(state.sesi[i].prize).trim().toLowerCase() === k) a += state.sesi[i].winners.length;
+    }
+    return a;
+  }
+
+  function renderRiwayat() {
+    if (!state.sesi.length) { el.riwayat.innerHTML = ''; return; }
+    el.riwayat.innerHTML =
+      '<div class="board-head small"><span class="line"></span><h2>📋 HASIL SEMENTARA</h2><span class="line"></span></div>' +
+      state.sesi.map(function (s, i) {
+        const awal = awalSesi(i);
+        return '<div class="sesi-card">' +
+          '<div class="sesi-head">' +
+            '<span class="sesi-prize">Pengundian Ke-' + (i + 1) +
+              ' <span class="sep">|</span> ' + esc(s.prize) + '</span>' +
+            '<span class="sesi-meta">' + s.winners.length + ' pemenang</span>' +
+            '<button class="sesi-act wa-sesi" data-s="' + i + '" ' +
+              'title="Kirim pemenang ' + esc(s.prize) + ' ke WhatsApp">💬 Kirim</button>' +
+            '<button class="sesi-act salin-sesi" data-s="' + i + '" ' +
+              'title="Salin teks pemenang ' + esc(s.prize) + '">📋 Salin</button>' +
+          '</div>' +
+          '<div class="sesi-names">' + s.winners.map(function (w, n) {
+            return '<span title="' + esc(w.name) + '"><b class="wno">' + (awal + n + 1) + '</b>' + esc(w.name) +
+              '<button class="wx" data-s="' + i + '" data-w="' + n + '" ' +
+              'title="Hapus dari daftar pemenang">×</button></span>';
+          }).join('') + '</div>' +
+        '</div>';
+      }).join('') +
+      '<div class="riwayat-actions">' +
+        '<button class="btn wa" id="btnWaSemua">💬 Kirim Semua ke WhatsApp</button>' +
+        '<button class="btn ghost" id="btnSalinSemua">📋 Salin Semua</button>' +
+      '</div>' +
+      '<p class="mini-note wa-note" id="waNoteRiwayat"></p>';
+  }
+
+  /* =========================================================
+     TEKS PEMENANG & KIRIM KE WHATSAPP
+     ========================================================= */
+  // daftar: [{prize, winners:[{name}], mulai, label}] -> teks siap kirim (format WhatsApp)
+  // `label` dipakai bila judul bloknya perlu beda dari nama hadiah
+  function teksDaftar(judul, daftar) {
+    let t = '*' + judul + '*\n' +
+            'Chill n Sunset — Mini Gath Riot Balikpapan\n' +
+            'Batakan Village, 27 September 2026\n';
+    let total = 0;
+    daftar.forEach(function (s) {
+      t += '\n*🎁 ' + (s.label || s.prize) + '*\n';
+      s.winners.forEach(function (w, i) { t += ((s.mulai || 0) + i + 1) + '. ' + w.name + '\n'; });
+      total += s.winners.length;
+    });
+    t += '\n_Total ' + total + ' pemenang' +
+         (daftar.length > 1 ? ' dari ' + daftar.length + ' hadiah' : '') + '_';
+    return t;
+  }
+
+  // seluruh sesi Hasil Sementara, digabung per hadiah
+  function teksSemuaSesi() {
+    return teksDaftar('🏆 HASIL SEMENTARA UNDIAN', rekapHadiah());
+  }
+
+  // buka WhatsApp dengan pesan yang sudah terisi
+  function kirimWA(teks, noteId) {
+    const note = noteId ? $(noteId) : null;
+    if (note) {
+      note.textContent = teks.length > 1500
+        ? '⚠ Daftar cukup panjang (' + teks.length +
+          ' karakter). Bila pesan terpotong di WhatsApp, pakai tombol Salin lalu tempel manual.'
+        : 'WhatsApp dibuka di tab baru — pilih kontak atau grup, lalu kirim.';
+    }
+    window.open('https://wa.me/?text=' + encodeURIComponent(teks), '_blank');
+  }
+
+  function salinTeks(teks, noteId) {
+    const note = noteId ? $(noteId) : null;
+    const ok = function () { if (note) note.textContent = '✔ Teks pemenang disalin — tinggal tempel di WhatsApp.'; };
+    const manual = function () {
+      const ta = document.createElement('textarea');
+      ta.value = teks;
+      ta.style.cssText = 'position:fixed;left:-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); ok(); }
+      catch (e) { if (note) note.textContent = '⚠ Gagal menyalin otomatis.'; }
+      document.body.removeChild(ta);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(teks).then(ok, manual);
+    } else manual();
+  }
+
+  // berapa pemenang hadiah ini yang sudah diundi pada sesi-sesi sebelumnya
+  function offsetHadiah(prize) {
+    const k = String(prize).trim().toLowerCase();
+    return state.sesi.reduce(function (a, s) {
+      return a + (String(s.prize).trim().toLowerCase() === k ? s.winners.length : 0);
+    }, 0);
+  }
+
+  function slotHTML(i, w) {
+    const no = (state.current ? state.current.off || 0 : 0) + i + 1;
+    return '<div class="slot slot-main' + (w ? ' locked' : '') + '" data-i="' + i + '">' +
+      '<div class="slot-mark"><span class="slot-badge">' + no + '</span></div>' +
+      '<div class="slot-body">' +
+        '<div class="slot-name" title="' + (w ? esc(w.name) : '') + '">' + (w ? esc(w.name) : '—') + '</div>' +
+        '<div class="slot-prize">' + esc(state.current ? state.current.prize : '') + '</div>' +
+      '</div></div>';
+  }
+
+  function renderSlots() {
+    if (!state.current) { el.slots.innerHTML = ''; return; }
+    const n = state.current.count;
+    let h = '';
+    for (let i = 0; i < n; i++) h += slotHTML(i, state.current.winners[i]);
+    el.slots.innerHTML = h;
+    el.slots.classList.toggle('single', n === 1);
+    el.slots.classList.toggle('fit', n > 1 && n <= 5);   // 2–5 pemenang: satu baris penuh
+    el.slots.classList.toggle('per5', n > 5);            // lebih dari 5: 5 kartu per baris
+    el.slots.classList.toggle('tight', n >= 4);
+    el.slots.style.setProperty('--cols', n > 5 ? 5 : Math.max(1, n));
+  }
+
+  function allSlots() {
+    return Array.prototype.slice.call(el.slots.querySelectorAll('.slot'));
+  }
+
+  /* =========================================================
+     PENGUNDIAN
+     ========================================================= */
+  let rollHandle = null;
+
+  function flashAll() {
+    const pool = poolUndian(state.current ? state.current.prize : '');
+    if (!pool.length) return;
+    const slots = allSlots();
+    const names = sampleUnique(pool, slots.length);
+    slots.forEach(function (s, i) {
+      if (s.classList.contains('locked')) return;
+      const p = names[i] || pool[randInt(pool.length)];
+      s.querySelector('.slot-name').textContent = p ? p.name : '';
+    });
+  }
+
+  function mulaiUndian() {
+    if (state.phase !== 'setup') return;
+    const prize = el.pilihHadiah.value.trim();
+    const jml = parseInt(el.jumlahUndi.value, 10);
+    const pool = poolUndian(prize);
+
+    if (!prize) { warn('Pilih hadiah terlebih dahulu.'); el.pilihHadiah.focus(); return; }
+    if (!el.jumlahUndi.value.trim() || isNaN(jml) || jml < 1) {
+      warn('Jumlah yang diundi belum diisi. Isi minimal 1.');
+      el.jumlahUndi.focus();
+      return;
+    }
+    if (!state.participants.length) { warn('Belum ada peserta. Upload daftar peserta dulu.'); return; }
+    if (!jmlHadir()) {
+      warn('Belum ada peserta yang ditandai hadir. Buka halaman Absensi dulu — ' +
+           'hanya yang hadir yang ikut diundi.');
+      return;
+    }
+    if (jml > pool.length) {
+      const ditahan = namaDitahan(prize);
+      warn('Jumlah yang diundi (' + jml + ') melebihi sisa peserta (' + pool.length + ')' +
+        (ditahan.length ? ' — ' + ditahan.join(', ') + ' tidak diikutkan karena namanya ada di nama hadiah ini.' : '.'));
+      el.jumlahUndi.focus();
+      return;
+    }
+    clearWarn();
+
+    // nomor kartu melanjutkan undian sebelumnya untuk hadiah yang sama
+    state.current = { prize: prize, count: jml, winners: [], off: offsetHadiah(prize) };
+    state.phase = 'rolling';
+    Confetti.clear();
+
+    el.undiForm.classList.add('hidden');
+    el.stage.classList.remove('hidden');
+    el.stagePrize.textContent = '🎁 ' + prize.toUpperCase();
+    renderSlots();
+    allSlots().forEach(function (s) { s.classList.add('rolling'); });
+    const ditahanIni = namaDitahan(prize);
+    el.statusLine.textContent = 'MENGUNDI ' + jml + ' pemenang… tekan STOP untuk menghentikan' +
+      (ditahanIni.length ? ' · 🚫 tanpa ' + ditahanIni.join(', ') : '');
+    el.btnStop.classList.remove('hidden');
+    el.btnStop.disabled = false;
+    el.btnLagi.classList.add('hidden');
+    el.btnSelesai.classList.add('hidden');
+    el.hint.innerHTML = 'Tekan <kbd>Spasi</kbd> atau tombol STOP untuk menghentikan undian.';
+
+    AudioFX.unlock();
+    AudioFX.startRoll();
+    flashAll();
+    if (rollHandle) clearInterval(rollHandle);
+    rollHandle = setInterval(flashAll, 32);
+  }
+
+  function stopUndian() {
+    if (state.phase !== 'rolling') return;
+    state.phase = 'stopping';
+    if (rollHandle) { clearInterval(rollHandle); rollHandle = null; }
+    AudioFX.stopRoll();
+    el.btnStop.disabled = true;
+    el.statusLine.textContent = 'Mengerem…';
+
+    const pemenang = sampleUnique(poolUndian(state.current.prize), state.current.count)
+      .map(function (p) { return { name: p.name }; });
+
+    function paint(lock) {
+      allSlots().forEach(function (s, i) {
+        const w = pemenang[i];
+        if (!w) return;
+        const nm = s.querySelector('.slot-name');
+        nm.textContent = w.name;
+        nm.title = w.name;
+        if (lock) { s.classList.remove('rolling', 'settling'); s.classList.add('locked'); }
+      });
+    }
+
+    const DURASI = 3200;
+    const t0 = performance.now();
+    let sudahFinal = false;
+    allSlots().forEach(function (s) { s.classList.add('settling'); });
+
+    (function slowDown() {
+      const p = Math.min(1, (performance.now() - t0) / DURASI);
+      if (p < 1) {
+        if (p >= 0.72) { if (!sudahFinal) { paint(false); sudahFinal = true; } }
+        else flashAll();
+        AudioFX.tick(false);
+        setTimeout(slowDown, 32 + 430 * Math.pow(p, 1.9));
+        return;
+      }
+      paint(true);
+      selesaiSesi(pemenang);
+    })();
+  }
+
+  function selesaiSesi(pemenang) {
+    state.current.winners = pemenang;
+    state.phase = 'hasil';
+    el.btnStop.classList.add('hidden');
+    el.btnStop.disabled = false;
+    el.btnLagi.classList.remove('hidden');
+    el.btnSelesai.classList.remove('hidden');
+    el.statusLine.innerHTML = '✔ ' + pemenang.length + ' pemenang <b>' + esc(state.current.prize) +
+      '</b> terpilih. Lanjut undi hadiah lain, atau akhiri pengundian.';
+    el.hint.textContent = 'Pengundian Lagi = undi hadiah berikutnya · Pengundian Selesai = tampilkan semua hasil.';
+
+    // musik hanya berbunyi selama roll — setelah berhenti tidak ada suara.
+    // (AudioFX.fanfare() sengaja tidak dipanggil; fungsinya disimpan bila nanti diperlukan lagi)
+    AudioFX.stopRoll();
+    Confetti.ribbons(26);
+    setTimeout(function () { Confetti.ribbons(26); }, 300);
+    setTimeout(function () { Confetti.ribbons(26); }, 600);
+    setTimeout(function () { Confetti.burst(240); Confetti.ribbons(60); }, 1000);
+    setTimeout(function () { Confetti.burst(150); Confetti.ribbons(30); }, 1700);
+  }
+
+  // simpan sesi berjalan ke daftar hasil
+  function kunciSesi() {
+    if (state.current && state.current.winners.length) {
+      state.sesi.push({ prize: state.current.prize, winners: state.current.winners });
+    }
+    state.current = null;
+    save();
+  }
+
+  function undiLagi() {
+    kunciSesi();
+    state.phase = 'setup';
+    Confetti.clear();
+    el.stage.classList.add('hidden');
+    el.slots.innerHTML = '';
+    el.undiForm.classList.remove('hidden');
+    el.pilihHadiah.value = '';          // kembali ke "- Pilih Hadiah -"
+    el.jumlahUndi.value = '';
+    clearWarn();
+    refresh();
+    el.undiForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.pilihHadiah.focus();
+  }
+
+  /* ---------- hasil akhir (ditampilkan di halaman ini) ---------- */
+  // hadiah yang sama digabung jadi satu daftar bernomor urut
+  function rekapHadiah() {
+    const urut = [], peta = {};
+    state.sesi.forEach(function (s) {
+      const k = String(s.prize).trim().toLowerCase();
+      if (peta[k]) peta[k].winners = peta[k].winners.concat(s.winners);
+      else { peta[k] = { prize: s.prize, winners: s.winners.slice() }; urut.push(peta[k]); }
+    });
+    return urut;
+  }
+
+  function renderHasilAkhir() {
+    const rekap = rekapHadiah();
+    const total = rekap.reduce(function (a, s) { return a + s.winners.length; }, 0);
+    el.hasilAkhir.innerHTML =
+      '<div class="ann-badge">🏆 Pemenang Undian</div>' +
+      rekap.map(function (s, si) {
+        const besar = s.winners.length <= 3;
+        return '<div class="board-section">' +
+          '<div class="board-head has-act"><span class="line"></span><h2>🎁 ' +
+            esc(s.prize.toUpperCase()) + '</h2><span class="line"></span>' +
+            '<span class="bh-act">' +
+              '<button class="sesi-act wa-sesi" data-h="' + si + '" ' +
+                'title="Kirim pemenang ' + esc(s.prize) + ' ke WhatsApp">💬 Kirim</button>' +
+              '<button class="sesi-act salin-sesi" data-h="' + si + '" ' +
+                'title="Salin teks pemenang ' + esc(s.prize) + '">📋 Salin</button>' +
+            '</span></div>' +
+          (besar
+            ? '<div class="ann-main">' + s.winners.map(function (w, i) {
+                return '<div class="ann-card">' +
+                  '<div class="crown"><span class="ann-no">' + (i + 1) + '</span></div>' +
+                  '<div class="body"><div class="nm" title="' + esc(w.name) + '">' + esc(w.name) + '</div></div>' +
+                  '<div class="pz">' + esc(s.prize) + '</div>' +
+                '</div>';
+              }).join('') + '</div>'
+            : '<div class="winners-sub">' + s.winners.map(function (w, i) {
+                return '<div class="w-sub"><div class="no">' + (i + 1) + '</div>' +
+                  '<div class="info"><div class="nm" title="' + esc(w.name) + '">' + esc(w.name) + '</div>' +
+                  '<div class="dt">' + esc(s.prize) + '</div></div></div>';
+              }).join('') + '</div>') +
+        '</div>';
+      }).join('') +
+      '<p class="ann-note">Total ' + total + ' pemenang dari ' + rekap.length + ' hadiah · ' +
+        poolUndian().length + ' nama tersisa di kotak undian · ' +
+        new Date().toLocaleString('id-ID') + '</p>' +
+      '<div class="ann-actions">' +
+        '<button class="btn wa" id="btnWaHasil">💬 Kirim ke WhatsApp</button>' +
+        '<button class="btn ghost" id="btnSalinHasil">📋 Salin Teks</button>' +
+        '<button class="btn ghost" id="btnCetakHasil">🖨 Cetak / PDF</button>' +
+        '<button class="btn ghost" id="btnExcelHasil">⬇ Unduh Excel</button>' +
+        '<button class="btn ghost" id="btnKembaliUndi">← Kembali Mengundi</button>' +
+      '</div>' +
+      '<p class="mini-note" id="waNote" style="text-align:center"></p>';
+
+    function teksPemenang() { return teksDaftar('🏆 PEMENANG UNDIAN', rekap); }
+
+    $('btnWaHasil').addEventListener('click', function () { kirimWA(teksPemenang(), 'waNote'); });
+    $('btnSalinHasil').addEventListener('click', function () { salinTeks(teksPemenang(), 'waNote'); });
+
+    $('btnCetakHasil').addEventListener('click', function () { window.print(); });
+    $('btnKembaliUndi').addEventListener('click', tutupHasilAkhir);
+    $('btnExcelHasil').addEventListener('click', function () {
+      const rows = [['Hadiah', 'No', 'Nama Pemenang']];
+      rekap.forEach(function (s) {
+        s.winners.forEach(function (w, i) { rows.push([s.prize, i + 1, w.name]); });
+      });
+      if (typeof XLSX === 'undefined') {
+        const csv = rows.map(function (r) {
+          return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
+        }).join('\n');
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+        a.download = 'pemenang-undian-chill-n-sunset.csv'; a.click();
+        return;
+      }
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = [{ wch: 26 }, { wch: 6 }, { wch: 30 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Pemenang');
+      XLSX.writeFile(wb, 'pemenang-undian-chill-n-sunset.xlsx');
+    });
+  }
+
+  function tutupHasilAkhir() {
+    state.phase = 'setup';
+    el.hasilAkhir.classList.add('hidden');
+    el.undiForm.classList.remove('hidden');
+    el.riwayat.classList.remove('hidden');
+    document.querySelector('.final-actions').classList.remove('hidden');
+    Confetti.clear();
+    refresh();
+  }
+
+  function pengundianSelesai() {
+    if (!state.sesi.length && !(state.current && state.current.winners.length)) {
+      warn('Belum ada hasil undian untuk ditampilkan.');
+      return;
+    }
+    konfirmasi('Pengundian selesai?',
+      'Yakin ingin mengakhiri pengundian? Seluruh pemenang akan ditampilkan.',
+      'Ya, Selesai', function () {
+        kunciSesi();
+        state.phase = 'selesai';
+        el.undiForm.classList.add('hidden');
+        el.stage.classList.add('hidden');
+        el.riwayat.classList.add('hidden');
+        document.querySelector('.final-actions').classList.add('hidden');
+        renderHasilAkhir();
+        el.hasilAkhir.classList.remove('hidden');
+        el.hasilAkhir.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        Confetti.burst(260); Confetti.ribbons(50);
+        setTimeout(function () { Confetti.burst(160); Confetti.ribbons(40); }, 900);
+      });
+  }
+
+  function resetSemua() {
+    konfirmasi('Reset semua pengundian?',
+      'Seluruh hasil undian (' + state.sesi.length + ' hadiah) akan dihapus dan semua nama kembali masuk kotak undian. Daftar peserta tidak terhapus.',
+      'Ya, Reset', function () {
+        state.sesi = [];
+        state.current = null;
+        state.phase = 'setup';
+        if (rollHandle) { clearInterval(rollHandle); rollHandle = null; }
+        AudioFX.stopRoll();
+        Confetti.clear();
+        el.stage.classList.add('hidden');
+        el.slots.innerHTML = '';
+        el.undiForm.classList.remove('hidden');
+        el.pilihHadiah.value = '';
+        el.jumlahUndi.value = '';
+        clearWarn();
+        save();
+        refresh();
+      });
+  }
+
+  /* =========================================================
+     EVENT
+     ========================================================= */
+  el.setupToggle.addEventListener('click', function () { el.setupPanel.classList.toggle('collapsed'); });
+
+  el.fileDrop.addEventListener('click', function () { el.fileInput.click(); });
+  el.fileInput.addEventListener('change', function (e) { handleFile(e.target.files[0]); e.target.value = ''; });
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    el.fileDrop.addEventListener(ev, function (e) { e.preventDefault(); el.fileDrop.classList.add('over'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    el.fileDrop.addEventListener(ev, function (e) { e.preventDefault(); el.fileDrop.classList.remove('over'); });
+  });
+  el.fileDrop.addEventListener('drop', function (e) {
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
+
+  el.btnTemplate.addEventListener('click', function () {
+    const contoh = [
+      ['Nama', 'L/P', 'Ikut Tim', 'Ikut Undian'],
+      ['Budi Santoso', 'L', 'OK', 'OK'],
+      ['Siti Rahma', 'P', 'OK', 'OK'],
+      ['Andi Pratama', 'L', 'NOT', 'OK'],
+      ['Rudi Hartono', 'L', 'NOT', 'NOT']
+    ];
+    if (typeof XLSX === 'undefined') {
+      const csv = contoh.map(function (r) { return r.join(','); }).join('\n') + '\n';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.download = 'template-peserta-undian.csv'; a.click();
+      return;
+    }
+    const ws = XLSX.utils.aoa_to_sheet(contoh);
+    ws['!cols'] = [{ wch: 30 }, { wch: 7 }, { wch: 10 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Peserta');
+    XLSX.writeFile(wb, 'template-peserta-undian.xlsx');
+  });
+
+  el.btnManual.addEventListener('click', function () {
+    el.manualBox.classList.toggle('hidden');
+    if (!el.manualBox.classList.contains('hidden')) {
+      el.manualText.value = state.raw.map(function (p) { return p.name; }).join('\n');
+      el.manualText.focus();
+    }
+  });
+  el.btnManualSave.addEventListener('click', function () {
+    const list = el.manualText.value.split('\n').map(function (l) { return l.trim(); })
+      .filter(Boolean).map(function (l) { return { name: rapikanNama(l), g: 'L', t: true, u: true }; });
+    if (!list.length) { showError('Daftar nama kosong.'); return; }
+    setParticipants(list, 'input manual');
+    el.manualBox.classList.add('hidden');
+  });
+
+  el.pesertaList.addEventListener('click', function (e) {
+    const b = e.target.closest('.px');
+    if (!b) return;
+    const i = parseInt(b.dataset.i, 10);
+    const p = state.raw[i];
+    if (!p) return;
+    konfirmasi('Hapus peserta?',
+      '"' + rapikanNama(p.name) + '" akan dihapus dari daftar peserta.',
+      'Ya, Hapus', function () { removeParticipant(i); });
+  });
+
+  el.btnManage.addEventListener('click', function () {
+    const w = window.open('peserta.html', 'kelolaPeserta',
+      'width=1160,height=820,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes');
+    if (w) w.focus(); else location.href = 'peserta.html';
+  });
+
+  el.btnClearPeserta.addEventListener('click', function () {
+    if (!state.raw.length) { showError('Daftar peserta masih kosong.'); return; }
+    konfirmasi('Hapus semua peserta?',
+      'Seluruh ' + state.raw.length + ' nama peserta akan dihapus. Hasil undian yang sudah ada tidak ikut terhapus.',
+      'Ya, Hapus Semua', function () { setParticipants([], ''); });
+  });
+
+  el.chkDedupe.addEventListener('change', function () {
+    state.dedupe = el.chkDedupe.checked;
+    renderPeserta('');
+    save();
+  });
+
+  el.pilihHadiah.addEventListener('change', function () { clearWarn(); refresh(); });
+  el.jumlahUndi.addEventListener('input', clearWarn);
+  el.jumlahUndi.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); mulaiUndian(); }
+  });
+
+  // hapus satu pemenang dari daftar Hasil Sementara
+  el.riwayat.addEventListener('click', function (e) {
+    // kirim / salin pemenang satu sesi
+    const act = e.target.closest('.sesi-act');
+    if (act) {
+      const si = parseInt(act.dataset.s, 10);
+      const ss = state.sesi[si];
+      if (!ss) return;
+      const teks = teksDaftar('🏆 PEMENANG ' + String(ss.prize).toUpperCase(),
+        [{ prize: ss.prize, winners: ss.winners, mulai: awalSesi(si),
+           label: 'Pengundian Ke-' + (si + 1) + ' | ' + ss.prize }]);
+      if (act.classList.contains('wa-sesi')) kirimWA(teks, 'waNoteRiwayat');
+      else salinTeks(teks, 'waNoteRiwayat');
+      return;
+    }
+    if (e.target.closest('#btnWaSemua')) { kirimWA(teksSemuaSesi(), 'waNoteRiwayat'); return; }
+    if (e.target.closest('#btnSalinSemua')) { salinTeks(teksSemuaSesi(), 'waNoteRiwayat'); return; }
+
+    const b = e.target.closest('.wx');
+    if (!b) return;
+    const si = parseInt(b.dataset.s, 10), wi = parseInt(b.dataset.w, 10);
+    const sesi = state.sesi[si];
+    if (!sesi || !sesi.winners[wi]) return;
+    const nama = sesi.winners[wi].name;
+    konfirmasi('Hapus pemenang?',
+      '"' + nama + '" akan dihapus dari daftar pemenang ' + sesi.prize +
+      ' dan namanya kembali masuk kotak undian.',
+      'Ya, Hapus', function () {
+        sesi.winners.splice(wi, 1);
+        if (!sesi.winners.length) state.sesi.splice(si, 1);
+        save();
+        refresh();
+      });
+  });
+
+  // kirim / salin pemenang satu hadiah dari halaman hasil akhir
+  el.hasilAkhir.addEventListener('click', function (e) {
+    const act = e.target.closest('.bh-act .sesi-act');
+    if (!act) return;
+    const h = rekapHadiah()[parseInt(act.dataset.h, 10)];
+    if (!h) return;
+    const teks = teksDaftar('🏆 PEMENANG ' + String(h.prize).toUpperCase(), [h]);
+    if (act.classList.contains('wa-sesi')) kirimWA(teks, 'waNote');
+    else salinTeks(teks, 'waNote');
+  });
+
+  el.btnStart.addEventListener('click', mulaiUndian);
+  el.btnStop.addEventListener('click', stopUndian);
+  el.btnLagi.addEventListener('click', undiLagi);
+  el.btnSelesai.addEventListener('click', pengundianSelesai);
+  el.btnSelesaiBawah.addEventListener('click', pengundianSelesai);
+  el.btnReset.addEventListener('click', resetSemua);
+
+  el.btnSound.addEventListener('click', function () {
+    const on = AudioFX.toggle();
+    el.btnSound.textContent = on ? '🔊' : '🔇';
+  });
+  el.btnFull.addEventListener('click', function () {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    const t = e.target.tagName;
+    if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT') return;
+    if (e.code === 'Space') {
+      e.preventDefault();
+      if (state.phase === 'rolling') stopUndian();
+      else if (state.phase === 'setup') mulaiUndian();
+    }
+  });
+
+  // daftar peserta diubah dari jendela Kelola Peserta
+  window.addEventListener('storage', function (e) {
+    if (e.key !== LS_STATE) return;
+    if (state.phase === 'rolling' || state.phase === 'stopping') return;
+    let s = null;
+    try { s = JSON.parse(e.newValue || 'null'); } catch (err) { return; }
+    if (!s || !s.raw) return;
+    state.raw = s.raw.map(function (p) {
+      return {
+        name: rapikanNama(p.name),
+        g: p.g === 'P' ? 'P' : 'L',
+        t: p.t === false ? false : true,
+        u: p.u === false ? false : true,
+        h: p.h === true,
+        jam: typeof p.jam === 'string' ? p.jam : ''
+      };
+    });
+    renderPeserta('diperbarui dari halaman lain');
+    refresh();
+  });
+
+  /* ---------- INIT ---------- */
+  load();
+  el.chkDedupe.checked = state.dedupe;
+  renderHadiah();
+  renderPeserta(state.raw.length ? 'data tersimpan' : '');
+  refresh();
+})();

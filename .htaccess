@@ -1,0 +1,9 @@
+# Selalu sajikan versi terbaru — penting saat acara berlangsung.
+# Tanpa ini browser bisa memakai index.html lama dari cache dan memuat app.js versi lama.
+<IfModule mod_headers.c>
+  <FilesMatch "\.(html|js|css)$">
+    Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+  </FilesMatch>
+</IfModule>

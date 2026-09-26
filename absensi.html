@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta name="theme-color" content="#150a22">
+<link rel="icon" type="image/svg+xml" href="favicon.svg?v=1">
+<link rel="apple-touch-icon" href="favicon.svg?v=1">
+<title>Absensi &mdash; Chill n Sunset | Mini Gath Riot Balikpapan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;600;800&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=84">
+<style>
+  /* ====== halaman absensi: dirancang untuk layar HP dulu ====== */
+  body.absen-body{min-height:100vh;display:flex;flex-direction:column}
+  .absen-head{text-align:center;padding:16px 16px 10px;position:relative;z-index:2}
+  .absen-head h1{font-family:'Playfair Display',serif;font-size:1.5rem;color:var(--gold);margin:0}
+  .absen-head p{margin:3px 0 0;font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;opacity:.65}
+
+  /* alat cari + ringkasan menempel di atas saat digulir */
+  .absen-bar{position:sticky;top:0;z-index:5;padding:10px 14px 12px;
+    background:linear-gradient(180deg,rgba(21,10,34,.97) 70%,rgba(21,10,34,0));
+    backdrop-filter:blur(6px)}
+  .absen-search{position:relative}
+  .absen-search input{width:100%;font-family:inherit;font-size:1rem;color:#fff;
+    padding:13px 40px 13px 15px;border-radius:14px;
+    background:rgba(12,4,22,.8);border:1px solid rgba(255,212,121,.3);outline:none}
+  .absen-search input:focus{border-color:var(--gold)}
+  .absen-search .clr{position:absolute;right:6px;top:50%;transform:translateY(-50%);
+    width:32px;height:32px;border:none;border-radius:50%;cursor:pointer;
+    background:transparent;color:#ffb3c0;font-size:1.1rem}
+
+  .absen-stat{display:flex;gap:8px;margin-top:10px}
+  .absen-stat button{flex:1;font-family:inherit;cursor:pointer;padding:9px 4px;border-radius:12px;
+    background:rgba(12,4,22,.6);border:1px solid rgba(255,255,255,.12);color:#fff;
+    display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1}
+  .absen-stat button b{font-size:1.15rem;color:var(--gold)}
+  .absen-stat button span{font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;opacity:.65}
+  .absen-stat button.active{border-color:var(--gold);background:rgba(255,212,121,.14)}
+  .absen-stat button.active b{color:#fff}
+
+  /* daftar nama */
+  .absen-list{flex:1;padding:0 14px 8px;display:flex;flex-direction:column;gap:8px}
+  .arow{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:14px;
+    background:rgba(24,9,38,.62);border:1px solid rgba(255,255,255,.08)}
+  .arow{transition:background .25s ease,border-color .25s ease}
+  .arow.hadir{border-color:rgba(37,211,102,.45);background:rgba(37,211,102,.1)}
+  /* kedipan singkat sebagai tanda tekanan tombol diterima */
+  .arow.kedip{animation:absenKedip .7s ease-out}
+  @keyframes absenKedip{
+    0%{background:rgba(37,211,102,.5);transform:scale(1.015)}
+    100%{background:rgba(37,211,102,.1);transform:scale(1)}
+  }
+  @media(prefers-reduced-motion:reduce){ .arow.kedip{animation:none} }
+  /* setelah warnanya sempat terlihat, baris meluncur keluar dari antrean */
+  .arow.pergi{opacity:0;transform:translateX(22px);
+    transition:opacity .28s ease,transform .28s ease}
+  .ano{flex:0 0 26px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+    font-size:.7rem;background:rgba(255,212,121,.16);color:var(--gold)}
+  .anama{flex:1;min-width:0;font-size:1rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .arow.hadir .anama{color:#d8ffe6}
+  .ajam{flex:0 0 auto;font-size:.62rem;letter-spacing:.06em;opacity:.55}
+  /* sepasang tombol, dibuat besar supaya gampang ditekan di HP */
+  .aset{flex:0 0 auto;display:flex;gap:5px}
+  .aset button{min-width:62px;min-height:40px;cursor:pointer;font-family:inherit;
+    font-size:.7rem;font-weight:700;letter-spacing:.06em;border-radius:11px;
+    background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.2);color:#cbb8e6;
+    transition:background .15s ease,border-color .15s ease,color .15s ease}
+  .ahadir.on{background:linear-gradient(135deg,#25d366,#128c4a);border-color:transparent;color:#04220f}
+  .atidak.on{background:rgba(255,77,109,.9);border-color:transparent;color:#fff}
+  @media(max-width:400px){
+    .aset button{min-width:56px;font-size:.64rem;letter-spacing:.02em}
+    .ajam{display:none}
+  }
+  .ajk{flex:0 0 22px;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+    font-size:.62rem;font-weight:700;background:rgba(255,255,255,.1);color:#cbb8e6}
+  .ajk.p{background:rgba(255,77,109,.22);color:#ffc4cf}
+
+  .absen-kosong{text-align:center;opacity:.6;font-size:.86rem;padding:26px 10px}
+
+  /* tambah peserta */
+  .absen-add{padding:4px 14px 10px}
+  .absen-add .kotak{display:none;gap:8px;margin-top:9px}
+  .absen-add.buka .kotak{display:flex}
+  .absen-add .kotak{flex-direction:column}
+  .absen-add .kotak input{width:100%;font-family:inherit;font-size:1rem;color:#fff;
+    padding:12px 14px;border-radius:13px;
+    background:rgba(12,4,22,.8);border:1px solid var(--gold);outline:none}
+  .absen-add .baris2{display:flex;gap:8px;align-items:stretch}
+  .jk{display:flex;gap:6px;flex:0 0 auto}
+  .jk button{width:52px;min-height:44px;cursor:pointer;font-family:inherit;font-size:.86rem;
+    font-weight:700;border-radius:12px;background:rgba(255,255,255,.07);
+    border:1px solid rgba(255,255,255,.22);color:#e9d9ff}
+  .jk button.on{background:rgba(255,212,121,.2);border-color:var(--gold);color:var(--gold)}
+  .jk button.on[data-g="P"]{background:rgba(255,77,109,.22);border-color:#ff90a6;color:#ffc4cf}
+  .absen-add .baris2 .btn{flex:1;min-height:44px}
+  .absen-add .btn-tambah{width:100%;min-height:48px;font-size:.9rem}
+
+  /* layar lebar: daftar dibuat dua kolom dan diberi batas lebar */
+  @media(min-width:760px){
+    .absen-bar,.absen-list,.absen-add{max-width:900px;margin-left:auto;margin-right:auto;width:100%}
+    .absen-list{display:grid;grid-template-columns:1fr 1fr;align-items:start}
+  }
+</style>
+</head>
+<body class="absen-body">
+<div class="sky"></div>
+
+<header class="absen-head">
+  <h1>Absensi</h1>
+  <p>Chill n Sunset &middot; Mini Gath Riot Balikpapan</p>
+</header>
+
+<div class="absen-bar">
+  <div class="absen-search">
+    <input type="search" id="q" placeholder="🔍 Cari nama…" autocomplete="off">
+    <button class="clr hidden" id="btnClr" title="Kosongkan pencarian">✕</button>
+  </div>
+  <div class="absen-stat" id="stat">
+    <button data-f="belum" class="active"><b id="nBelum">0</b><span>Belum Hadir</span></button>
+    <button data-f="hadir"><b id="nHadir">0</b><span>Hadir</span></button>
+    <button data-f="semua"><b id="nSemua">0</b><span>Semua</span></button>
+  </div>
+</div>
+
+<div class="absen-add" id="addBox">
+  <button class="btn save btn-tambah" id="btnTambah">＋ Tambah Peserta</button>
+  <div class="kotak">
+    <input type="text" id="namaBaru" placeholder="Nama peserta baru…" autocomplete="off">
+    <div class="baris2">
+      <div class="jk" id="jkPilih">
+        <button type="button" data-g="L" class="on" title="Laki-laki">L</button>
+        <button type="button" data-g="P" title="Perempuan">P</button>
+      </div>
+      <button class="btn save" id="btnSimpanBaru">Simpan</button>
+    </div>
+  </div>
+</div>
+
+<main class="absen-list" id="list"></main>
+
+<footer class="foot">
+  <span class="credit">created by <b>@fuadrach</b></span>
+</footer>
+
+<div class="modal hidden" id="modal">
+  <div class="modal-box">
+    <h3 id="modalTitle">Yakin?</h3>
+    <p id="modalText"></p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="modalNo">Batal</button>
+      <button class="btn save" id="modalYes">Ya</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var LS_STATE = 'undian_riot_bpp_state_v2';
+  function $(id) { return document.getElementById(id); }
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+  function rapikanNama(s){
+    s = String(s==null?'':s).replace(/\s+/g,' ').trim().toLowerCase();
+    try { return s.replace(/(^|[^\p{L}\p{N}])([\p{L}\p{N}])/gu, function(m,a,b){return a+b.toUpperCase();}); }
+    catch(e){ return s.replace(/(^|[^a-z0-9])([a-z0-9])/g, function(m,a,b){return a+b.toUpperCase();}); }
+  }
+
+  function baca() {
+    try { return JSON.parse(localStorage.getItem(LS_STATE) || 'null') || {}; }
+    catch (e) { return {}; }
+  }
+  function rapikan(p) {
+    return {
+      name: rapikanNama(p.name),
+      g: p.g === 'P' ? 'P' : 'L',
+      t: p.t === false ? false : true,
+      u: p.u === false ? false : true,
+      h: p.h === true,                       // hadir; belum diabsen = false
+      jam: typeof p.jam === 'string' ? p.jam : ''
+    };
+  }
+
+  var st = baca();
+  if (!st.raw) st.raw = [];
+  st.raw = st.raw.map(rapikan);
+
+  var filter = 'belum';   // antrean absen: yang sudah hadir langsung hilang dari daftar
+
+  function simpan() {
+    st.savedAt = Date.now();
+    localStorage.setItem(LS_STATE, JSON.stringify(st));
+  }
+
+  /* ---------- dialog konfirmasi ---------- */
+  var modalAksi = null;
+  function konfirmasi(judul, teks, tombol, aksi) {
+    $('modalTitle').textContent = judul;
+    $('modalText').textContent = teks;
+    $('modalYes').textContent = tombol;
+    modalAksi = aksi;
+    $('modal').classList.remove('hidden');
+  }
+  $('modalNo').addEventListener('click', function () {
+    $('modal').classList.add('hidden'); modalAksi = null;
+  });
+  $('modal').addEventListener('click', function (e) {
+    if (e.target === $('modal')) $('modalNo').click();
+  });
+  $('modalYes').addEventListener('click', function () {
+    $('modal').classList.add('hidden');
+    var a = modalAksi; modalAksi = null;
+    if (a) a();
+  });
+
+  /* ---------- tampilan ---------- */
+  function jamSekarang() {
+    var d = new Date();
+    return ('0' + d.getHours()).slice(-2) + '.' + ('0' + d.getMinutes()).slice(-2);
+  }
+
+  function perbaruiHitung() {
+    var hadir = st.raw.filter(function (p) { return p.h; }).length;
+    $('nSemua').textContent = st.raw.length;
+    $('nHadir').textContent = hadir;
+    $('nBelum').textContent = st.raw.length - hadir;
+    document.querySelectorAll('#stat button').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.f === filter);
+    });
+  }
+
+  // ubah satu baris di tempat: namanya tetap terlihat, hanya warnanya yang berganti
+  function perbaruiBaris(row, p) {
+    row.classList.toggle('hadir', p.h);
+    row.classList.remove('kedip');
+    void row.offsetWidth;                 // paksa animasi diputar ulang
+    if (p.h) row.classList.add('kedip');
+
+    var bHadir = row.querySelector('.ahadir');
+    bHadir.classList.toggle('on', p.h);
+    bHadir.textContent = p.h ? '✓ HADIR' : 'HADIR';
+
+    var bTidak = row.querySelector('.atidak');
+    if (bTidak) {
+      bTidak.classList.toggle('on', !p.h);
+      bTidak.textContent = p.h ? 'TIDAK' : '✕ TIDAK';
+    }
+
+    var jam = row.querySelector('.ajam');
+    if (p.h) {
+      if (!jam) {
+        jam = document.createElement('span');
+        jam.className = 'ajam';
+        row.insertBefore(jam, row.querySelector('.ajk'));
+      }
+      jam.textContent = p.jam;
+    } else if (jam) {
+      jam.parentNode.removeChild(jam);
+    }
+  }
+
+  var timerPergi = [];
+  function bersihkanTimer() {
+    timerPergi.forEach(function (t) { clearTimeout(t); });
+    timerPergi = [];
+  }
+
+  function render() {
+    bersihkanTimer();
+    var q = $('q').value.trim().toLowerCase();
+    $('btnClr').classList.toggle('hidden', !q);
+    perbaruiHitung();
+
+    var rows = st.raw.map(function (p, i) { return { p: p, i: i }; })
+      .filter(function (r) { return !q || r.p.name.toLowerCase().indexOf(q) !== -1; })
+      .filter(function (r) {
+        if (filter === 'hadir') return r.p.h;
+        if (filter === 'belum') return !r.p.h;
+        return true;
+      });
+
+    if (!st.raw.length) {
+      $('list').innerHTML = '<div class="absen-kosong">Belum ada peserta.<br>' +
+        'Tekan <b>＋ Tambah Peserta</b>, atau upload daftar Excel di halaman undian.</div>';
+    } else if (!rows.length) {
+      $('list').innerHTML = '<div class="absen-kosong">' +
+        (q ? 'Tidak ada nama yang cocok dengan pencarian.'
+           : (filter === 'hadir' ? 'Belum ada yang ditandai hadir.'
+              : '🎉 Semua peserta sudah hadir.')) +
+        '</div>';
+    } else {
+      $('list').innerHTML = rows.map(function (r) {
+        return '<div class="arow' + (r.p.h ? ' hadir' : '') + '" data-i="' + r.i + '">' +
+          '<span class="ano">' + (r.i + 1) + '</span>' +
+          '<span class="anama" title="' + esc(r.p.name) + '">' + esc(r.p.name) + '</span>' +
+          (r.p.h && r.p.jam ? '<span class="ajam">' + esc(r.p.jam) + '</span>' : '') +
+          '<span class="ajk' + (r.p.g === 'P' ? ' p' : '') + '" title="' +
+            (r.p.g === 'P' ? 'Perempuan' : 'Laki-laki') + '">' + r.p.g + '</span>' +
+          '<span class="aset">' +
+            '<button class="ahadir' + (r.p.h ? ' on' : '') + '" title="Tandai hadir">' +
+              (r.p.h ? '✓ HADIR' : 'HADIR') + '</button>' +
+            (filter === 'belum' ? ''
+              : '<button class="atidak' + (r.p.h ? '' : ' on') + '" title="Tandai tidak hadir">' +
+                  (r.p.h ? 'TIDAK' : '✕ TIDAK') + '</button>') +
+          '</span>' +
+        '</div>';
+      }).join('');
+    }
+
+  }
+
+  /* ---------- aksi pada daftar ---------- */
+  $('list').addEventListener('click', function (e) {
+    var row = e.target.closest('.arow');
+    if (!row) return;
+    var i = parseInt(row.dataset.i, 10);
+    var p = st.raw[i];
+    if (!p) return;
+
+    var tekanHadir = e.target.closest('.ahadir');
+    var tekanTidak = e.target.closest('.atidak');
+    if (tekanHadir || tekanTidak) {
+      var mau = !!tekanHadir;
+      if (p.h === mau) return;            // sudah pada status itu
+      p.h = mau;
+      p.jam = p.h ? jamSekarang() : '';
+      simpan();
+
+      // batalkan jadwal menghilang bila barisnya ditekan lagi
+      if (row._t) { clearTimeout(row._t); row._t = null; }
+      row.classList.remove('pergi');
+
+      perbaruiBaris(row, p);
+      perbaruiHitung();
+
+      // pada tab tersaring: warnanya diperlihatkan dulu, 2 detik kemudian
+      // barisnya meluncur keluar dari daftar
+      var cocok = filter === 'semua' || (filter === 'hadir' ? p.h : !p.h);
+      if (!cocok) {
+        row._t = setTimeout(function () {
+          row._t = null;
+          row.classList.add('pergi');
+          // hanya baris ini yang dibuang — baris lain yang baru ditandai
+          // tetap mendapat jatah 2 detiknya sendiri
+          var t2 = setTimeout(function () {
+            if (row.parentNode) row.parentNode.removeChild(row);
+            if (!$('list').querySelector('.arow')) render();
+          }, 300);
+          timerPergi.push(t2);
+        }, 2000);
+        timerPergi.push(row._t);
+      }
+      return;
+    }
+  });
+
+  /* ---------- pencarian & saringan ---------- */
+  $('q').addEventListener('input', render);
+  $('btnClr').addEventListener('click', function () { $('q').value = ''; render(); $('q').focus(); });
+  $('stat').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    filter = b.dataset.f;
+    render();
+  });
+
+  /* ---------- tambah peserta ---------- */
+  function bukaTambah(buka) {
+    $('addBox').classList.toggle('buka', buka);
+    $('btnTambah').textContent = buka ? '✕ Batal Menambah' : '＋ Tambah Peserta';
+    if (buka) $('namaBaru').focus();
+  }
+  $('btnTambah').addEventListener('click', function () {
+    bukaTambah(!$('addBox').classList.contains('buka'));
+  });
+
+  var jkBaru = 'L';
+  $('jkPilih').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    jkBaru = b.dataset.g;
+    document.querySelectorAll('#jkPilih button').forEach(function (x) {
+      x.classList.toggle('on', x.dataset.g === jkBaru);
+    });
+  });
+
+  function tambahPeserta() {
+    var nama = rapikanNama($('namaBaru').value);
+    if (!nama) { $('namaBaru').focus(); return; }
+
+    var kembar = st.raw.some(function (p) { return p.name === nama; });
+    var tambah = function () {
+      // ditambahkan lewat absensi = orangnya sedang di tempat:
+      // langsung hadir, ikut undian (u), dan ikut tim (t)
+      st.raw.push({ name: nama, g: jkBaru, t: true, u: true, h: true, jam: jamSekarang() });
+      $('namaBaru').value = '';
+      $('q').value = '';
+      simpan(); render();
+      $('namaBaru').focus();
+    };
+
+    if (kembar) {
+      konfirmasi('Nama sudah ada',
+        '"' + nama + '" sudah ada di daftar peserta. Tetap tambahkan sebagai orang kedua?',
+        'Ya, Tambahkan', tambah);
+      return;
+    }
+    tambah();
+  }
+  $('btnSimpanBaru').addEventListener('click', tambahPeserta);
+  $('namaBaru').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); tambahPeserta(); }
+  });
+
+  /* ---------- ikut berubah bila halaman lain mengubah data ---------- */
+  window.addEventListener('storage', function (e) {
+    if (e.key !== LS_STATE) return;
+    st = baca();
+    if (!st.raw) st.raw = [];
+    st.raw = st.raw.map(rapikan);
+    render();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

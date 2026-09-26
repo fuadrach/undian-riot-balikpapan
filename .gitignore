@@ -1,0 +1,10 @@
+# berkas sementara sistem
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# data uji / unduhan hasil undian
+*.xlsx
+*.xls
+*.csv
+!template*.xlsx

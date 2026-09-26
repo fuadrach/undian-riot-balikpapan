@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<link rel="icon" type="image/svg+xml" href="favicon.svg?v=1">
+<link rel="apple-touch-icon" href="favicon.svg?v=1">
+<title>Pembagian Tim &mdash; Chill n Sunset | Mini Gath Riot Balikpapan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;600;800&family=Playfair+Display:ital,wght@0,700;0,900;1,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=84">
+</head>
+<body>
+<div class="sky"></div>
+<div class="sun"></div>
+<div class="sea"></div>
+
+<header class="masthead">
+  <div class="brand-line"></div>
+  <h1 class="title">Chill n Sunset</h1>
+  <p class="event-name">Mini Gath Riot Balikpapan</p>
+  <p class="subtitle">Pembagian Tim</p>
+  <div class="brand-line"></div>
+</header>
+
+<main class="wrap">
+
+  <section class="panel" id="setupPanel">
+    <div class="panel-head" id="setupToggle">
+      <h2>⚙️ Pengaturan Tim</h2>
+      <span class="chev">▾</span>
+    </div>
+    <div class="panel-body">
+      <div class="grid-setup">
+
+        <div class="card-setup">
+          <h3>1. Jumlah Tim</h3>
+          <div class="field">
+            <label>Berapa tim yang dibentuk?</label>
+            <input type="number" id="jumlahTim" min="2" max="30" value="4">
+          </div>
+          <div class="field">
+            <label>Awalan nama tim</label>
+            <input type="text" id="prefixTim" value="Tim" placeholder="mis. Tim / Kelompok / Squad">
+          </div>
+          <button class="btn primary" id="btnBagi">🔀 Bagi Tim Sekarang</button>
+          <p class="mini-note" id="ringkas"></p>
+        </div>
+
+        <div class="card-setup">
+          <h3>2. Perempuan &amp; Peserta yang Bertugas</h3>
+          <p class="mini-note" style="margin:0 0 10px">
+            Klik lingkaran <b>L/P</b> untuk mengubah jenis kelamin — perempuan dibagi rata ke semua tim.
+            Klik <b>OK</b> agar jadi <b>NOT</b> untuk peserta yang bertugas saat acara; yang <b>NOT</b>
+            tidak ikut dibagi tim (tetap ikut undian).
+          </p>
+          <div class="manage-tools">
+            <input type="search" id="q" class="manage-input" placeholder="🔍 Cari nama…" autocomplete="off">
+            <div class="manage-count" id="count">0 peserta</div>
+          </div>
+          <div class="gender-list" id="listPeserta"></div>
+          <div class="row-mini">
+            <button class="btn ghost tiny" id="btnSemuaL">Tandai semua L</button>
+            <button class="btn ghost tiny" id="btnKelola">⤢ Kelola Peserta</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <section id="hasil"></section>
+
+  <section class="final-actions">
+    <button class="btn save big" id="btnAcak">🔀 ACAK ULANG TIM</button>
+    <button class="btn wa" id="btnWaSemua">💬 Kirim Semua ke WhatsApp</button>
+    <button class="btn ghost" id="btnSalinSemua">📋 Salin Semua</button>
+    <button class="btn ghost" id="btnCetak">🖨 Cetak / PDF</button>
+    <button class="btn ghost" id="btnExcel">⬇ Unduh Excel</button>
+    <button class="btn ghost" id="btnKembali">← Kembali ke Undian</button>
+  </section>
+</main>
+
+<footer class="foot">  <span class="credit">created by <b>@fuadrach</b></span>
+</footer>
+
+<!-- dialog konfirmasi -->
+<div class="modal hidden" id="modal">
+  <div class="modal-box">
+    <h3 id="modalTitle">Hapus dari tim?</h3>
+    <p id="modalText"></p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="modalNo">Batal</button>
+      <button class="btn danger" id="modalYes">Ya, Hapus</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  var LS_STATE = 'undian_riot_bpp_state_v2';
+  var LS_TIM = 'undian_riot_bpp_tim_v1';
+
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function rapikanNama(s){
+    s = String(s==null?'':s).replace(/\s+/g,' ').trim().toLowerCase();
+    try { return s.replace(/(^|[^\p{L}\p{N}])([\p{L}\p{N}])/gu, function(m,a,b){return a+b.toUpperCase();}); }
+    catch(e){ return s.replace(/(^|[^a-z0-9])([a-z0-9])/g, function(m,a,b){return a+b.toUpperCase();}); }
+  }
+  // acak kriptografis tanpa bias
+  function randInt(max){
+    if (max <= 0) return 0;
+    if (window.crypto && crypto.getRandomValues) {
+      var limit = Math.floor(4294967296 / max) * max, buf = new Uint32Array(1), x;
+      do { crypto.getRandomValues(buf); x = buf[0]; } while (x >= limit);
+      return x % max;
+    }
+    return Math.floor(Math.random() * max);
+  }
+  function kocok(arr){
+    var a = arr.slice();
+    for (var i = a.length - 1; i > 0; i--) { var j = randInt(i + 1), t = a[i]; a[i] = a[j]; a[j] = t; }
+    return a;
+  }
+
+  /* ---------- data ---------- */
+  var st = {};
+  try { st = JSON.parse(localStorage.getItem(LS_STATE) || 'null') || {}; } catch (e) {}
+  if (!st.raw) st.raw = [];
+  st.raw = st.raw.map(function (p) { return { name: rapikanNama(p.name), g: p.g === 'P' ? 'P' : 'L', t: p.t === false ? false : true, u: p.u === false ? false : true, h: p.h === true, jam: typeof p.jam === 'string' ? p.jam : '' }; });
+
+  var tim = [];           // [{nama, anggota:[{name,g}]}]
+  try { tim = JSON.parse(localStorage.getItem(LS_TIM) || 'null') || []; } catch (e) {}
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ---------- dialog konfirmasi ---------- */
+  var modalAksi = null;
+  function konfirmasi(judul, teks, tombol, aksi) {
+    $('modalTitle').textContent = judul;
+    $('modalText').textContent = teks;
+    $('modalYes').textContent = tombol;
+    modalAksi = aksi;
+    $('modal').classList.remove('hidden');
+  }
+  $('modalNo').addEventListener('click', function () {
+    $('modal').classList.add('hidden'); modalAksi = null;
+  });
+  $('modal').addEventListener('click', function (e) {
+    if (e.target === $('modal')) $('modalNo').click();
+  });
+  $('modalYes').addEventListener('click', function () {
+    $('modal').classList.add('hidden');
+    var a = modalAksi; modalAksi = null;
+    if (a) a();
+  });
+
+  function simpanPeserta() {
+    st.savedAt = Date.now();
+    localStorage.setItem(LS_STATE, JSON.stringify(st));
+  }
+  function simpanTim() {
+    try { localStorage.setItem(LS_TIM, JSON.stringify(tim)); } catch (e) {}
+  }
+
+  /* ---------- daftar peserta + penanda L/P ---------- */
+  function renderPeserta() {
+    var q = $('q').value.trim().toLowerCase();
+    var rows = st.raw.map(function (p, i) { return { p: p, i: i }; })
+      .filter(function (r) { return !q || r.p.name.toLowerCase().indexOf(q) !== -1; });
+    // tampil urut: perempuan dulu, lalu abjad nama
+    rows.sort(function (a, b) {
+      if ((a.p.g === 'P') !== (b.p.g === 'P')) return a.p.g === 'P' ? -1 : 1;
+      return a.p.name.localeCompare(b.p.name, 'id', { sensitivity: 'base' });
+    });
+    var ikut = pesertaIkut();
+    var jmlP = ikut.filter(function (p) { return p.g === 'P'; }).length;
+    var belum = jmlBelumHadir();
+    var off = st.raw.length - belum - ikut.length;
+
+    $('count').textContent = ikut.length + ' ikut tim · ' + jmlP + ' perempuan' +
+      (belum ? ' · ' + belum + ' belum hadir' : '') +
+      (off ? ' · ' + off + ' bertugas' : '');
+
+    if (!st.raw.length) {
+      $('listPeserta').innerHTML = '<div class="empty-note">Belum ada peserta. Upload daftar nama di halaman undian dulu.</div>';
+    } else if (!rows.length) {
+      $('listPeserta').innerHTML = '<div class="empty-note">Tidak ada nama yang cocok.</div>';
+    } else {
+      $('listPeserta').innerHTML = rows.map(function (r) {
+        return '<span class="gchip' + (r.p.g === 'P' ? ' cewe' : '') +
+          (r.p.t === false || !r.p.h ? ' off' : '') + '"' +
+          (!r.p.h ? ' title="Belum hadir — tidak ikut dibagi ke tim"' : '') + '>' +
+          '<button class="gtag" data-g="' + r.i + '" title="Ubah L / P">' + r.p.g + '</button>' +
+          '<span class="gnama" title="' + esc(r.p.name) + '">' + esc(r.p.name) + '</span>' +
+          '<button class="gok' + (r.p.t === false ? '' : ' ok') + '" data-t="' + r.i + '" title="' +
+            (r.p.t === false ? 'Tidak ikut tim (bertugas)' : 'Ikut tim') + '">' +
+            (r.p.t === false ? 'NOT' : 'OK') + '</button>' +
+        '</span>';
+      }).join('');
+    }
+    hitungRingkas();
+  }
+
+  // hanya yang HADIR yang dibagi ke tim, lalu yang ditandai ikut tim
+  function pesertaIkut() {
+    return st.raw.filter(function (p) { return p.h && p.t !== false; });
+  }
+  function jmlBelumHadir() {
+    return st.raw.filter(function (p) { return !p.h; }).length;
+  }
+
+  function hitungRingkas() {
+    var n = Math.max(2, parseInt($('jumlahTim').value, 10) || 2);
+    var ikut = pesertaIkut();
+    var total = ikut.length, cewe = ikut.filter(function (p) { return p.g === 'P'; }).length;
+    var belum = jmlBelumHadir();
+    var off = st.raw.length - belum - total;
+    var perTim = Math.floor(total / n), sisa = total % n;
+    $('ringkas').textContent = total
+      ? total + ' peserta ikut tim → ' + n + ' tim (' + perTim + (sisa ? '–' + (perTim + 1) : '') + ' orang/tim) · ' +
+        cewe + ' perempuan dibagi rata' +
+        (belum ? ' · 🚷 ' + belum + ' belum hadir' : '') +
+        (off ? ' · ' + off + ' bertugas, tidak dibagi' : '')
+      : (belum === st.raw.length && st.raw.length
+          ? 'Belum ada peserta yang ditandai hadir — buka halaman Absensi dulu.'
+          : 'Belum ada peserta yang ikut tim.');
+  }
+
+  $('listPeserta').addEventListener('click', function (e) {
+    var g = e.target.closest('.gtag');
+    if (g) {
+      var gi = parseInt(g.dataset.g, 10);
+      st.raw[gi].g = st.raw[gi].g === 'P' ? 'L' : 'P';
+      simpanPeserta(); renderPeserta();
+      return;
+    }
+    var t = e.target.closest('.gok');
+    if (t) {
+      var ti = parseInt(t.dataset.t, 10);
+      st.raw[ti].t = st.raw[ti].t === false;
+      simpanPeserta(); renderPeserta();
+    }
+  });
+  $('q').addEventListener('input', renderPeserta);
+  $('jumlahTim').addEventListener('input', hitungRingkas);
+  $('btnSemuaL').addEventListener('click', function () {
+    st.raw.forEach(function (p) { p.g = 'L'; });
+    simpanPeserta(); renderPeserta();
+  });
+  $('btnKelola').addEventListener('click', function () {
+    var w = window.open('peserta.html', 'kelolaPeserta',
+      'width=1160,height=820,menubar=no,toolbar=no,location=no,resizable=yes,scrollbars=yes');
+    if (w) w.focus(); else location.href = 'peserta.html';
+  });
+
+  /* ---------- pembagian tim ---------- */
+  function bagiTim() {
+    var n = Math.max(2, Math.min(30, parseInt($('jumlahTim').value, 10) || 2));
+    var ikut = pesertaIkut();
+    if (ikut.length < n) {
+      $('ringkas').textContent = ikut.length === 0 && jmlBelumHadir() === st.raw.length && st.raw.length
+        ? '⚠ Belum ada peserta yang ditandai hadir. Buka halaman Absensi dulu — hanya yang hadir yang dibagi ke tim.'
+        : '⚠ Peserta yang ikut tim (' + ikut.length + ') lebih sedikit dari jumlah tim (' + n + ').';
+      return;
+    }
+    var prefix = ($('prefixTim').value || 'Tim').trim();
+    var namaLama = tim.map(function (t) { return t.nama; });
+
+    tim = [];
+    for (var i = 0; i < n; i++) tim.push({ nama: namaLama[i] || (prefix + ' ' + (i + 1)), anggota: [] });
+
+    var cewe = kocok(ikut.filter(function (p) { return p.g === 'P'; }));
+    var cowo = kocok(ikut.filter(function (p) { return p.g !== 'P'; }));
+
+    // perempuan lebih dulu: selalu masuk tim dengan perempuan paling sedikit
+    cewe.forEach(function (p) {
+      var pilih = 0, min = Infinity;
+      for (var i = 0; i < n; i++) {
+        var c = tim[i].anggota.filter(function (a) { return a.g === 'P'; }).length;
+        if (c < min) { min = c; pilih = i; }
+      }
+      tim[pilih].anggota.push(p);
+    });
+    // laki-laki menyusul: masuk tim dengan anggota paling sedikit
+    cowo.forEach(function (p) {
+      var pilih = 0, min = Infinity;
+      for (var i = 0; i < n; i++) {
+        if (tim[i].anggota.length < min) { min = tim[i].anggota.length; pilih = i; }
+      }
+      tim[pilih].anggota.push(p);
+    });
+
+    // urutan tampil: perempuan dulu, lalu urut abjad nama
+    tim.forEach(function (t) {
+      t.anggota.sort(function (a, b) {
+        if ((a.g === 'P') !== (b.g === 'P')) return a.g === 'P' ? -1 : 1;
+        return a.name.localeCompare(b.name, 'id', { sensitivity: 'base' });
+      });
+    });
+    simpanTim();
+    renderTim();
+    hitungRingkas();
+  }
+
+  function renderTim() {
+    if (!tim.length) {
+      $('hasil').innerHTML = '<div class="empty-note" style="margin:10px 0 26px">' +
+        'Atur jumlah tim lalu tekan <b>Bagi Tim Sekarang</b>.</div>';
+      return;
+    }
+    $('hasil').innerHTML =
+      '<div class="board-head"><span class="line"></span><h2>👥 HASIL PEMBAGIAN TIM</h2><span class="line"></span></div>' +
+      '<div class="tim-grid">' + tim.map(function (t, i) {
+        var cewe = t.anggota.filter(function (a) { return a.g === 'P'; }).length;
+        return '<div class="tim-card">' +
+          '<div class="tim-head">' +
+            '<span class="tim-no">' + (i + 1) + '</span>' +
+            '<span class="tim-nama" contenteditable="true" data-i="' + i + '">' + esc(t.nama) + '</span>' +
+            '<span class="tim-act">' +
+              '<button class="sesi-act wa-sesi" data-t="' + i + '" ' +
+                'title="Kirim daftar ' + esc(t.nama) + ' ke WhatsApp">💬</button>' +
+              '<button class="sesi-act salin-sesi" data-t="' + i + '" ' +
+                'title="Salin daftar ' + esc(t.nama) + '">📋</button>' +
+            '</span>' +
+          '</div>' +
+          '<div class="tim-meta">' + t.anggota.length + ' orang · ' + cewe + ' perempuan</div>' +
+          '<ol class="tim-anggota">' + t.anggota.map(function (a, j) {
+            return '<li' + (a.g === 'P' ? ' class="cewe"' : '') + ' title="' + esc(a.name) + '">' +
+              '<span class="tnama">' + esc(a.name) +
+                (a.g === 'P' ? ' <span class="mark">♀</span>' : '') + '</span>' +
+              '<button class="tx" data-t="' + i + '" data-a="' + j + '" ' +
+                'title="Keluarkan dari tim ini">×</button>' +
+            '</li>';
+          }).join('') + '</ol>' +
+        '</div>';
+      }).join('') + '</div>' +
+      '<p class="mini-note wa-note" id="waNoteTim"></p>';
+  }
+
+  /* ---------- teks & kirim WhatsApp ---------- */
+  function teksTim(judul, daftar) {
+    var t = '*' + judul + '*\n' +
+            'Chill n Sunset — Mini Gath Riot Balikpapan\n' +
+            'Batakan Village, 27 September 2026\n';
+    var total = 0, cewe = 0;
+    daftar.forEach(function (x) {
+      var p = x.anggota.filter(function (a) { return a.g === 'P'; }).length;
+      t += '\n*👥 ' + x.nama + '* (' + x.anggota.length + ' orang · ' + p + ' perempuan)\n';
+      x.anggota.forEach(function (a, i) {
+        t += (i + 1) + '. ' + a.name + (a.g === 'P' ? ' ♀' : '') + '\n';
+      });
+      total += x.anggota.length;
+      cewe += p;
+    });
+    t += '\n_Total ' + total + ' orang · ' + cewe + ' perempuan' +
+         (daftar.length > 1 ? ' · ' + daftar.length + ' tim' : '') + '_';
+    return t;
+  }
+
+  function catatanWA(teks) {
+    var n = $('waNoteTim');
+    if (!n) return;
+    n.textContent = teks.length > 1500
+      ? '⚠ Daftar cukup panjang (' + teks.length +
+        ' karakter). Bila pesan terpotong di WhatsApp, pakai tombol Salin lalu tempel manual.'
+      : 'WhatsApp dibuka di tab baru — pilih kontak atau grup, lalu kirim.';
+  }
+
+  function kirimWA(teks) {
+    catatanWA(teks);
+    window.open('https://wa.me/?text=' + encodeURIComponent(teks), '_blank');
+  }
+
+  function salinTeks(teks) {
+    var n = $('waNoteTim');
+    var ok = function () { if (n) n.textContent = '✔ Daftar tim disalin — tinggal tempel di WhatsApp.'; };
+    var manual = function () {
+      var ta = document.createElement('textarea');
+      ta.value = teks;
+      ta.style.cssText = 'position:fixed;left:-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); ok(); }
+      catch (e) { if (n) n.textContent = '⚠ Gagal menyalin otomatis.'; }
+      document.body.removeChild(ta);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(teks).then(ok, manual);
+    } else manual();
+  }
+
+  $('btnWaSemua').addEventListener('click', function () {
+    if (!tim.length) return;
+    kirimWA(teksTim('👥 PEMBAGIAN TIM', tim));
+  });
+  $('btnSalinSemua').addEventListener('click', function () {
+    if (!tim.length) return;
+    salinTeks(teksTim('👥 PEMBAGIAN TIM', tim));
+  });
+
+  // keluarkan satu anggota dari tim (daftar peserta tidak ikut terhapus)
+  $('hasil').addEventListener('click', function (e) {
+    var act = e.target.closest('.tim-act .sesi-act');
+    if (act) {
+      var t = tim[parseInt(act.dataset.t, 10)];
+      if (!t) return;
+      var teks = teksTim('👥 ' + String(t.nama).toUpperCase(), [t]);
+      if (act.classList.contains('wa-sesi')) kirimWA(teks); else salinTeks(teks);
+      return;
+    }
+    var b = e.target.closest('.tx');
+    if (!b) return;
+    var ti = parseInt(b.dataset.t, 10), ai = parseInt(b.dataset.a, 10);
+    if (!tim[ti] || !tim[ti].anggota[ai]) return;
+    var nama = tim[ti].anggota[ai].name;
+    konfirmasi('Keluarkan dari tim?',
+      '"' + nama + '" akan dikeluarkan dari ' + tim[ti].nama +
+      '. Namanya tetap ada di daftar peserta dan ikut dibagi lagi bila tim diacak ulang.',
+      'Ya, Keluarkan', function () {
+        tim[ti].anggota.splice(ai, 1);
+        simpanTim(); renderTim();
+      });
+  });
+
+  $('hasil').addEventListener('blur', function (e) {
+    var t = e.target.closest('.tim-nama');
+    if (!t) return;
+    tim[parseInt(t.dataset.i, 10)].nama = t.textContent.trim() || ('Tim ' + (parseInt(t.dataset.i, 10) + 1));
+    simpanTim();
+  }, true);
+
+  $('btnBagi').addEventListener('click', bagiTim);
+  $('btnAcak').addEventListener('click', bagiTim);
+  $('setupToggle').addEventListener('click', function () { $('setupPanel').classList.toggle('collapsed'); });
+  $('btnCetak').addEventListener('click', function () { window.print(); });
+  $('btnKembali').addEventListener('click', function () { location.href = 'index.html'; });
+
+  $('btnExcel').addEventListener('click', function () {
+    if (!tim.length) return;
+    var rows = [['Tim', 'No', 'Nama', 'L/P']];
+    tim.forEach(function (t) {
+      t.anggota.forEach(function (a, i) { rows.push([t.nama, i + 1, a.name, a.g]); });
+    });
+    if (typeof XLSX === 'undefined') {
+      var csv = rows.map(function (r) {
+        return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
+      }).join('\n');
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+      a.download = 'pembagian-tim.csv'; a.click();
+      return;
+    }
+    var ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 20 }, { wch: 5 }, { wch: 28 }, { wch: 6 }];
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Tim');
+    XLSX.writeFile(wb, 'pembagian-tim.xlsx');
+  });
+
+  // ikut berubah bila daftar peserta diubah di jendela lain
+  window.addEventListener('storage', function (e) {
+    if (e.key !== LS_STATE) return;
+    try { st = JSON.parse(e.newValue || 'null') || {}; } catch (err) { return; }
+    if (!st.raw) st.raw = [];
+    st.raw = st.raw.map(function (p) { return { name: rapikanNama(p.name), g: p.g === 'P' ? 'P' : 'L', t: p.t === false ? false : true, u: p.u === false ? false : true, h: p.h === true, jam: typeof p.jam === 'string' ? p.jam : '' }; });
+    renderPeserta();
+  });
+
+  renderPeserta();
+  renderTim();
+})();
+</script>
+</body>
+</html>

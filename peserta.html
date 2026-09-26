@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<link rel="icon" type="image/svg+xml" href="favicon.svg?v=1">
+<link rel="apple-touch-icon" href="favicon.svg?v=1">
+<title>Kelola Peserta &mdash; Undian Chill n Sunset</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;600;800&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=84">
+</head>
+<body class="manage-body">
+<div class="sky"></div>
+
+<header class="manage-head">
+  <h1>Kelola Peserta</h1>
+  <p>Chill n Sunset &middot; Mini Gath Riot Balikpapan</p>
+</header>
+
+<main class="manage-wrap">
+
+  <div class="manage-tools">
+    <input type="search" id="q" class="manage-input" placeholder="🔍 Cari nama peserta…" autocomplete="off">
+    <div class="manage-count" id="count">0 peserta</div>
+  </div>
+
+  <div class="manage-add">
+    <input type="text" id="newName" class="manage-input" placeholder="Tambah nama baru… (tekan Enter, default L)" autocomplete="off">
+    <button class="btn small" id="btnAdd">+ Tambah</button>
+  </div>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-f="semua">Semua <b>0</b></button>
+    <button class="tab" data-f="undian">🎁 Undian <b>0</b></button>
+    <button class="tab" data-f="nonundian">🚫 Non Undian <b>0</b></button>
+    <button class="tab" data-f="tim">👥 Tim <b>0</b></button>
+    <button class="tab" data-f="nontim">🚫 Non Tim <b>0</b></button>
+  </nav>
+
+  <div class="bulkbar">
+    <label class="bulk-all"><input type="checkbox" id="cekAll"> <span>Pilih semua</span></label>
+    <span class="bulk-info" id="bulkInfo">0 dipilih</span>
+    <div class="bulk-actions" id="bulkActions">
+      <button class="btn tiny" data-act="undi">🎁 Ikut Undian</button>
+      <button class="btn tiny" data-act="nonundi">🚫 Non Undian</button>
+      <button class="btn tiny" data-act="tim">👥 Ikut Tim</button>
+      <button class="btn tiny" data-act="nontim">🚫 Non Tim</button>
+    </div>
+  </div>
+
+  <div class="manage-list" id="list"></div>
+
+  <div class="manage-actions">
+    <button class="btn danger" id="btnClear">🗑 Hapus Semua Peserta</button>
+    <button class="btn ghost" id="btnClose">✓ Selesai</button>
+  </div>
+  <p class="manage-note"><a href="absensi.html" class="menu-link" style="margin-bottom:10px">✅ Buka Halaman Absensi</a><br>
+    Klik nama peserta untuk mengubahnya — Enter simpan, Esc batal.<br>
+    Perubahan langsung tersimpan dan otomatis terbaca di halaman undian.</p>
+</main>
+
+<!-- dialog konfirmasi -->
+<div class="modal hidden" id="modal">
+  <div class="modal-box">
+    <h3 id="modalTitle">Hapus?</h3>
+    <p id="modalText"></p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="modalNo">Batal</button>
+      <button class="btn danger" id="modalYes">Ya, Hapus</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var LS_STATE = 'undian_riot_bpp_state_v2';
+
+  function read() {
+    try { return JSON.parse(localStorage.getItem(LS_STATE) || 'null') || {}; }
+    catch (e) { return {}; }
+  }
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+  // "pak trish" / "PAK TRISH" -> "Pak Trish"
+  function rapikanNama(s){
+    s = String(s==null?'':s).replace(/\s+/g,' ').trim().toLowerCase();
+    try { return s.replace(/(^|[^\p{L}\p{N}])([\p{L}\p{N}])/gu, function(m,a,b){return a+b.toUpperCase();}); }
+    catch(e){ return s.replace(/(^|[^a-z0-9])([a-z0-9])/g, function(m,a,b){return a+b.toUpperCase();}); }
+  }
+
+  var st = read();
+  if (!st.raw) st.raw = [];
+  st.raw = st.raw.map(function (p) { return { name: rapikanNama(p.name), g: p.g === 'P' ? 'P' : 'L', t: p.t === false ? false : true, u: p.u === false ? false : true, h: p.h === true, jam: typeof p.jam === 'string' ? p.jam : '' }; });
+
+  var filter = 'semua';
+  var pilih = new Set();      // index peserta yang dicentang
+  var tampilIdx = [];         // index yang sedang tampil pada daftar
+
+  /* ---------- dialog konfirmasi ---------- */
+  var modalAksi = null;
+  var $modal = document.getElementById('modal');
+  function konfirmasi(judul, teks, tombol, aksi) {
+    document.getElementById('modalTitle').textContent = judul;
+    document.getElementById('modalText').textContent = teks;
+    document.getElementById('modalYes').textContent = tombol;
+    modalAksi = aksi;
+    $modal.classList.remove('hidden');
+  }
+  document.getElementById('modalNo').addEventListener('click', function () {
+    $modal.classList.add('hidden'); modalAksi = null;
+  });
+  $modal.addEventListener('click', function (e) {
+    if (e.target === $modal) document.getElementById('modalNo').click();
+  });
+  document.getElementById('modalYes').addEventListener('click', function () {
+    $modal.classList.add('hidden');
+    var a = modalAksi; modalAksi = null;
+    if (a) a();
+  });
+  var $q = document.getElementById('q');
+  var $list = document.getElementById('list');
+  var $count = document.getElementById('count');
+  var $new = document.getElementById('newName');
+
+  function persist() {
+    st.savedAt = Date.now();                 // pastikan nilai selalu berubah
+    localStorage.setItem(LS_STATE, JSON.stringify(st));
+  }
+
+  function render() {
+    var q = $q.value.trim().toLowerCase();
+    var rows = st.raw.map(function (p, i) {
+      return { name: p.name, g: p.g, t: p.t !== false, u: p.u !== false, h: p.h === true, i: i };
+    }).filter(function (r) { return !q || r.name.toLowerCase().indexOf(q) !== -1; })
+      .filter(function (r) {
+        if (filter === 'undian') return r.u;
+        if (filter === 'nonundian') return !r.u;
+        if (filter === 'tim') return r.t;
+        if (filter === 'nontim') return !r.t;
+        return true;
+      });
+    var jmlP = st.raw.filter(function (p) { return p.g === 'P'; }).length;
+    var jmlOff = st.raw.filter(function (p) { return p.t === false; }).length;
+    var jmlNonUndi = st.raw.filter(function (p) { return p.u === false; }).length;
+
+    // angka pada tiap tab
+    var hitung = {
+      semua: st.raw.length,
+      undian: st.raw.length - jmlNonUndi,
+      nonundian: jmlNonUndi,
+      tim: st.raw.length - jmlOff,
+      nontim: jmlOff
+    };
+    document.querySelectorAll('#tabs .tab').forEach(function (b) {
+      b.querySelector('b').textContent = hitung[b.dataset.f];
+      b.classList.toggle('active', b.dataset.f === filter);
+    });
+
+    $count.textContent = (q || filter !== 'semua' ? rows.length + ' dari ' + st.raw.length + ' peserta'
+                            : st.raw.length + ' peserta') + ' · ' + jmlP + ' perempuan' +
+                         (jmlOff ? ' · ' + jmlOff + ' non-tim' : '') +
+                         (jmlNonUndi ? ' · ' + jmlNonUndi + ' non-undian' : '');
+
+    // tab undian → cukup tombol UNDI; tab tim → tombol TIM + L/P
+    var modeUndi = (filter === 'undian' || filter === 'nonundian');
+    var modeTim = (filter === 'tim' || filter === 'nontim');
+
+    // tombol aksi massal ikut menyesuaikan tab yang aktif
+    document.querySelectorAll('#bulkActions button').forEach(function (b) {
+      var a = b.dataset.act;
+      var sembunyi = (modeUndi && (a === 'tim' || a === 'nontim')) ||
+                     (modeTim && (a === 'undi' || a === 'nonundi'));
+      b.classList.toggle('hidden', sembunyi);
+    });
+
+    if (!st.raw.length) {
+      $list.innerHTML = '<div class="empty-note">Belum ada peserta. Upload file Excel di halaman undian, atau tambahkan nama di atas.</div>';
+      tampilIdx = []; updateBulk();
+      return;
+    }
+    if (!rows.length) {
+      $list.innerHTML = '<div class="empty-note">' +
+        (filter === 'semua' ? 'Tidak ada nama yang cocok dengan pencarian.'
+                            : 'Tidak ada peserta pada kategori ini.') + '</div>';
+      tampilIdx = []; updateBulk();
+      return;
+    }
+    tampilIdx = rows.map(function (r) { return r.i; });
+
+    $list.innerHTML = rows.map(function (r) {
+      var html = '<div class="mrow' + (r.t && r.u ? '' : ' off') + (pilih.has(r.i) ? ' sel' : '') +
+        '" data-i="' + r.i + '">' +
+        '<input type="checkbox" class="mc"' + (pilih.has(r.i) ? ' checked' : '') + ' title="Pilih">' +
+        '<span class="mno">' + (r.i + 1) + '</span>' +
+        '<span class="mname" title="' + esc(r.name) + ' — klik untuk mengubah nama">' +
+          esc(r.name) + '</span>';
+      if (!modeTim) {
+        html += '<button class="mu' + (r.u ? ' ok' : '') + '" title="' +
+          (r.u ? 'Ikut undian — klik untuk mengeluarkan' : 'TIDAK ikut undian — klik untuk mengikutkan') + '">' +
+          (r.u ? 'UNDI' : 'NON') + '</button>';
+      }
+      if (!modeUndi) {
+        html += '<button class="mt' + (r.t ? ' ok' : '') + '" title="' +
+          (r.t ? 'Ikut tim — klik bila bertugas/tidak ikut' : 'Tidak ikut tim (bertugas) — klik bila ikut') + '">' +
+          (r.t ? 'TIM' : 'NON') + '</button>' +
+          '<button class="mg' + (r.g === 'P' ? ' cewe' : '') + '" title="Ubah Laki-laki / Perempuan">' + r.g + '</button>';
+      }
+      return html + '<button class="mx" title="Hapus nama ini">×</button></div>';
+    }).join('');
+
+    updateBulk();
+  }
+
+  /* ---------- pilih massal ---------- */
+  function updateBulk() {
+    // buang pilihan yang sudah tidak ada (mis. nama terhapus)
+    pilih.forEach(function (i) { if (!st.raw[i]) pilih.delete(i); });
+    var terpilihTampil = tampilIdx.filter(function (i) { return pilih.has(i); }).length;
+    document.getElementById('bulkInfo').textContent = pilih.size + ' dipilih';
+    var all = document.getElementById('cekAll');
+    all.checked = tampilIdx.length > 0 && terpilihTampil === tampilIdx.length;
+    all.indeterminate = terpilihTampil > 0 && terpilihTampil < tampilIdx.length;
+    document.querySelector('.bulkbar').classList.toggle('aktif', pilih.size > 0);
+  }
+
+  document.getElementById('cekAll').addEventListener('change', function () {
+    if (this.checked) tampilIdx.forEach(function (i) { pilih.add(i); });
+    else tampilIdx.forEach(function (i) { pilih.delete(i); });
+    render();
+  });
+
+  document.getElementById('bulkActions').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    if (!pilih.size) {
+      document.getElementById('bulkInfo').textContent = '⚠ pilih nama dulu';
+      return;
+    }
+    var act = b.dataset.act;
+    var teksAksi = {
+      undi: 'diikutkan dalam pengundian',
+      nonundi: 'dikeluarkan dari pengundian',
+      tim: 'diikutkan dalam pembagian tim',
+      nontim: 'dikeluarkan dari pembagian tim'
+    }[act];
+    konfirmasi('Ubah ' + pilih.size + ' peserta?',
+      pilih.size + ' nama yang dipilih akan ' + teksAksi + '.',
+      'Ya, Ubah', function () {
+        pilih.forEach(function (i) {
+          var p = st.raw[i];
+          if (!p) return;
+          if (act === 'undi') p.u = true;
+          else if (act === 'nonundi') p.u = false;
+          else if (act === 'tim') p.t = true;
+          else if (act === 'nontim') p.t = false;
+        });
+        persist(); render();
+      });
+  });
+
+  $q.addEventListener('input', render);
+
+  document.getElementById('tabs').addEventListener('click', function (e) {
+    var b = e.target.closest('.tab');
+    if (!b) return;
+    filter = b.dataset.f;
+    render();
+    $list.scrollTop = 0;
+  });
+
+  // nama yang sudah tercatat sebagai pemenang ikut diperbarui
+  function gantiNamaPemenang(lama, baru) {
+    if (!st.sesi) return;
+    st.sesi.forEach(function (s) {
+      (s.winners || []).forEach(function (w) { if (w.name === lama) w.name = baru; });
+    });
+  }
+
+  // klik nama -> kotak isian di tempat; Enter simpan, Esc batal
+  function editNama(row) {
+    if (row.querySelector('.medit')) return;
+    var i = parseInt(row.dataset.i, 10);
+    var p = st.raw[i];
+    if (!p) return;
+    var span = row.querySelector('.mname');
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'medit';
+    inp.value = p.name;
+    inp.maxLength = 80;
+    inp.title = 'Enter untuk simpan, Esc untuk batal';
+    row.replaceChild(inp, span);
+    inp.focus();
+    inp.select();
+
+    var tutup = false;
+    function terapkan(baru) {
+      gantiNamaPemenang(p.name, baru);
+      p.name = baru;
+      persist();
+      render();
+    }
+    function simpan() {
+      if (tutup) return;
+      tutup = true;
+      var baru = rapikanNama(inp.value);
+      if (!baru || baru === p.name) { render(); return; }
+      var kembar = st.raw.some(function (q, j) { return j !== i && q.name === baru; });
+      if (kembar) {
+        render();
+        konfirmasi('Nama sudah ada',
+          '"' + baru + '" sudah dipakai peserta lain. Nama kembar bisa membuat pencatatan ' +
+          'pemenang tertukar. Tetap ganti?',
+          'Ya, Tetap Ganti', function () { terapkan(baru); });
+        return;
+      }
+      terapkan(baru);
+    }
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); simpan(); }
+      else if (e.key === 'Escape') { e.preventDefault(); tutup = true; render(); }
+    });
+    inp.addEventListener('blur', simpan);
+  }
+
+  $list.addEventListener('click', function (e) {
+    var nm = e.target.closest('.mname');
+    if (nm) { editNama(nm.parentNode); return; }
+    var c = e.target.closest('.mc');
+    if (c) {
+      var ci = parseInt(c.parentNode.dataset.i, 10);
+      if (c.checked) pilih.add(ci); else pilih.delete(ci);
+      c.parentNode.classList.toggle('sel', c.checked);
+      updateBulk();
+      return;
+    }
+    var u = e.target.closest('.mu');
+    if (u) {
+      var ui = parseInt(u.parentNode.dataset.i, 10);
+      var pu = st.raw[ui];
+      if (!pu) return;
+      var keluarU = pu.u !== false;
+      konfirmasi(keluarU ? 'Keluarkan dari undian?' : 'Ikutkan ke undian?',
+        '"' + pu.name + '"' + (keluarU
+          ? ' tidak akan diikutkan dalam pengundian.'
+          : ' akan ikut diundi lagi.'),
+        keluarU ? 'Ya, Keluarkan' : 'Ya, Ikutkan',
+        function () { pu.u = !keluarU; persist(); render(); });
+      return;
+    }
+    var t = e.target.closest('.mt');
+    if (t) {
+      var ti = parseInt(t.parentNode.dataset.i, 10);
+      var pt = st.raw[ti];
+      if (!pt) return;
+      var keluarT = pt.t !== false;
+      konfirmasi(keluarT ? 'Keluarkan dari tim?' : 'Ikutkan ke tim?',
+        '"' + pt.name + '"' + (keluarT
+          ? ' tidak akan ikut dibagi ke tim (misalnya karena bertugas saat acara).'
+          : ' akan ikut dibagi ke tim.'),
+        keluarT ? 'Ya, Keluarkan' : 'Ya, Ikutkan',
+        function () { pt.t = !keluarT; persist(); render(); });
+      return;
+    }
+    var g = e.target.closest('.mg');
+    if (g) {
+      var gi = parseInt(g.parentNode.dataset.i, 10);
+      var pg = st.raw[gi];
+      if (!pg) return;
+      var jadiP = pg.g !== 'P';
+      konfirmasi('Ubah jenis kelamin?',
+        '"' + pg.name + '" diubah dari ' + (jadiP ? 'Laki-laki menjadi Perempuan' : 'Perempuan menjadi Laki-laki') + '.',
+        'Ya, Ubah',
+        function () { pg.g = jadiP ? 'P' : 'L'; persist(); render(); });
+      return;
+    }
+    var b = e.target.closest('.mx');
+    if (!b) return;
+    var i = parseInt(b.parentNode.dataset.i, 10);
+    if (!st.raw[i]) return;
+    konfirmasi('Hapus peserta?', '"' + st.raw[i].name + '" akan dihapus dari daftar peserta.',
+      'Ya, Hapus', function () {
+        st.raw.splice(i, 1);
+        pilih.delete(i);
+        persist(); render();
+      });
+  });
+
+  function addName() {
+    var v = $new.value.trim();
+    if (!v) return;
+    v.split('\n').forEach(function (n) {
+      n = rapikanNama(n);
+      if (n) st.raw.push({ name: n, g: 'L', t: true, u: true, h: false, jam: '' });
+    });
+    $new.value = '';
+    $q.value = '';
+    persist(); render();
+    $list.scrollTop = $list.scrollHeight;
+  }
+  document.getElementById('btnAdd').addEventListener('click', addName);
+  $new.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addName(); } });
+
+  document.getElementById('btnClear').addEventListener('click', function () {
+    if (!st.raw.length) return;
+    konfirmasi('Hapus semua peserta?',
+      'Seluruh ' + st.raw.length + ' nama peserta akan dihapus dan tidak bisa dikembalikan.',
+      'Ya, Hapus Semua', function () {
+        st.raw = []; pilih.clear();
+        persist(); render();
+      });
+  });
+
+  document.getElementById('btnClose').addEventListener('click', function () {
+    window.close();
+    setTimeout(function () { if (!window.closed) location.href = 'index.html'; }, 250);
+  });
+
+  // ikut berubah bila halaman undian mengubah daftar peserta
+  window.addEventListener('storage', function (e) {
+    if (e.key !== LS_STATE) return;
+    st = read(); if (!st.raw) st.raw = [];
+    st.raw = st.raw.map(function (p) { return { name: rapikanNama(p.name), g: p.g === 'P' ? 'P' : 'L', t: p.t === false ? false : true, u: p.u === false ? false : true, h: p.h === true, jam: typeof p.jam === 'string' ? p.jam : '' }; });
+    render();
+  });
+
+  render();
+  $q.focus();
+})();
+</script>
+</body>
+</html>

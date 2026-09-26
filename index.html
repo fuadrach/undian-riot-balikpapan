@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<link rel="icon" type="image/svg+xml" href="favicon.svg?v=1">
+<link rel="apple-touch-icon" href="favicon.svg?v=1">
+<title>Undian &mdash; Chill n Sunset | Mini Gath Riot Balikpapan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;600;800&family=Playfair+Display:ital,wght@0,700;0,900;1,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=84">
+</head>
+<body>
+<canvas id="confetti"></canvas>
+<div class="sky"></div>
+<div class="sun"></div>
+<div class="sea"></div>
+
+<header class="masthead">
+  <div class="brand-line"></div>
+  <h1 class="title">Chill n Sunset</h1>
+  <p class="event-name">Mini Gath Riot Balikpapan</p>
+  <p class="subtitle">Batakan Village &middot; 27 September 2026</p>
+  <div class="brand-line"></div>
+</header>
+
+<main class="wrap">
+
+  <!-- ============ DATA PESERTA ============ -->
+  <section class="panel collapsed" id="setupPanel">
+    <div class="panel-head" id="setupToggle">
+      <h2>⚙️ Data Peserta</h2>
+      <span class="chev">▾</span>
+    </div>
+    <div class="panel-body" id="setupBody">
+      <div class="card-setup">
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+        <div class="file-drop" id="fileDrop">
+          <span class="fd-icon">📄</span>
+          <span class="fd-text"><b>Upload File Excel</b><small>.xlsx / .xls / .csv &mdash; kolom <b>Nama</b> wajib; <b>L/P</b>, <b>Ikut Tim</b>, <b>Ikut Undian</b> (OK / NOT) opsional</small></span>
+        </div>
+        <div class="row-mini">
+          <button class="btn ghost tiny" id="btnTemplate">⬇ Unduh Template</button>
+          <button class="btn ghost tiny" id="btnManual">✍ Input Manual</button>
+          <button class="btn ghost tiny" id="btnManage">⤢ Kelola Peserta</button>
+          <button class="btn ghost tiny danger-text" id="btnClearPeserta">✖ Hapus Peserta</button>
+        </div>
+        <div class="manual-box hidden" id="manualBox">
+          <textarea id="manualText" rows="6" placeholder="Tulis satu nama per baris...&#10;Contoh:&#10;Budi Santoso&#10;Siti Rahma&#10;Andi Pratama"></textarea>
+          <button class="btn small" id="btnManualSave">Simpan Daftar Nama</button>
+        </div>
+        <label class="check"><input type="checkbox" id="chkDedupe"> Hapus nama duplikat</label>
+        <div class="peserta-info" id="pesertaInfo">Belum ada peserta.</div>
+        <div class="peserta-list" id="pesertaList"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FORM SESI UNDIAN ============ -->
+  <section class="undi-panel" id="undiForm">
+    <div class="undi-grid">
+      <div class="field">
+        <label>Hadiah yang diundi</label>
+        <div class="row-inline">
+          <select id="pilihHadiah"><option value="">- Pilih Hadiah -</option></select>
+          <button class="btn ghost small" id="btnKelolaHadiah" title="Tambah / ubah daftar hadiah">⚙ Kelola</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Jumlah yang diundi</label>
+        <input type="number" id="jumlahUndi" min="1" placeholder="contoh: 3">
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
+        <button class="btn primary big" id="btnStart">▶ MULAI UNDIAN</button>
+      </div>
+    </div>
+
+    <div class="hadiah-box hidden" id="hadiahBox">
+      <h4>Daftar Hadiah</h4>
+      <div id="hadiahList"></div>
+      <div class="hadiah-add">
+        <input type="text" id="hadiahBaru" placeholder="Nama hadiah baru… (tekan Enter)">
+        <button class="btn small" id="btnTambahHadiah">+ Tambah Hadiah</button>
+      </div>
+    </div>
+
+    <p class="warn-line hidden" id="warnLine"></p>
+    <p class="mini-note" id="poolNote"></p>
+  </section>
+
+  <!-- ============ PANGGUNG UNDIAN ============ -->
+  <section class="stage hidden" id="stage">
+    <div class="board-head">
+      <span class="line"></span>
+      <h2 id="stagePrize">HADIAH</h2>
+      <span class="line"></span>
+    </div>
+    <div class="slots slots-main" id="slotsUndian"></div>
+
+    <div class="status-line" id="statusLine"></div>
+
+    <div class="controls">
+      <button class="btn stop big" id="btnStop">■ STOP PENGUNDIAN</button>
+      <button class="btn primary big hidden" id="btnLagi">🔄 PENGUNDIAN LAGI</button>
+      <button class="btn save big hidden" id="btnSelesai">✅ PENGUNDIAN SELESAI</button>
+      <button class="btn ghost icon" id="btnSound" title="Musik drum">🔊</button>
+      <button class="btn ghost icon" id="btnFull" title="Layar penuh">⛶</button>
+    </div>
+    <p class="hint" id="hint">Tekan <kbd>Spasi</kbd> untuk menghentikan undian.</p>
+  </section>
+
+  <!-- ============ RIWAYAT HASIL ============ -->
+  <section id="riwayat"></section>
+
+  <!-- ============ HASIL AKHIR ============ -->
+  <section id="hasilAkhir" class="hidden"></section>
+
+  <!-- ============ MENU & AKSI ============ -->
+  <nav class="menu-links">
+    <a href="absensi.html" class="menu-link">✅ Absensi</a>
+    <a href="tim.html" class="menu-link">👥 Pembagian Tim</a>  </nav>
+
+  <section class="final-actions">
+    <button class="btn save big" id="btnSelesaiBawah">✅ PENGUNDIAN SELESAI</button>
+    <button class="btn danger big" id="btnReset">🗑 RESET SEMUA PENGUNDIAN</button>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <span class="credit">created by <b>@fuadrach</b></span>
+</footer>
+
+<!-- dialog konfirmasi -->
+<div class="modal hidden" id="modal">
+  <div class="modal-box">
+    <h3 id="modalTitle">Pengundian selesai?</h3>
+    <p id="modalText">Yakin ingin mengakhiri pengundian dan menampilkan semua hasil?</p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="modalNo">Batal</button>
+      <button class="btn save" id="modalYes">Ya, Selesai</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="app.js?v=84"></script>
+</body>
+</html>
