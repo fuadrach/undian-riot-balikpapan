@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;600;800&family=Playfair+Display:ital,wght@0,700;0,900;1,700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=87">
+<link rel="stylesheet" href="style.css?v=88">
 </head>
 <body>
 <div class="sky"></div>
@@ -100,6 +100,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="store.js?v=88"></script>
 <script>
 (function () {
   'use strict';
@@ -130,13 +131,15 @@
   }
 
   /* ---------- data ---------- */
-  var st = {};
-  try { st = JSON.parse(localStorage.getItem(LS_STATE) || 'null') || {}; } catch (e) {}
-  if (!st.raw) st.raw = [];
-  st.raw = st.raw.map(function (p) { return { name: rapikanNama(p.name), g: p.g === 'P' ? 'P' : 'L', t: p.t === false ? false : true, u: p.u === false ? false : true, h: p.h === true, jam: typeof p.jam === 'string' ? p.jam : '' }; });
-
+  var st = { raw: [] };
   var tim = [];           // [{nama, anggota:[{name,g}]}]
-  try { tim = JSON.parse(localStorage.getItem(LS_TIM) || 'null') || []; } catch (e) {}
+
+  function pasang(d) {
+    st = d;
+    if (!st.raw) st.raw = [];
+    st.raw = st.raw.map(function (p) { return { name: rapikanNama(p.name), g: p.g === 'P' ? 'P' : 'L', t: p.t === false ? false : true, u: p.u === false ? false : true, h: p.h === true, jam: typeof p.jam === 'string' ? p.jam : '' }; });
+    if (Array.isArray(d.tim)) tim = d.tim;
+  }
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -166,6 +169,7 @@
     localStorage.setItem(LS_STATE, JSON.stringify(st));
   }
   function simpanTim() {
+    if (window.Store) { Store.simpan({ tim: tim }); return; }
     try { localStorage.setItem(LS_TIM, JSON.stringify(tim)); } catch (e) {}
   }
 
@@ -465,13 +469,18 @@
   });
 
   // ikut berubah bila daftar peserta diubah di jendela lain
+  Store.dengar(function (d) { pasang(d); renderPeserta(); renderTim(); });
+
   window.addEventListener('storage', function (e) {
     if (e.key !== LS_STATE) return;
-    try { st = JSON.parse(e.newValue || 'null') || {}; } catch (err) { return; }
-    if (!st.raw) st.raw = [];
-    st.raw = st.raw.map(function (p) { return { name: rapikanNama(p.name), g: p.g === 'P' ? 'P' : 'L', t: p.t === false ? false : true, u: p.u === false ? false : true, h: p.h === true, jam: typeof p.jam === 'string' ? p.jam : '' }; });
+    var d = null;
+    try { d = JSON.parse(e.newValue || 'null'); } catch (err) { return; }
+    if (!d) return;
+    pasang({ raw: d.raw || [], tim: tim });
     renderPeserta();
   });
+
+  Store.muat(function (d) { pasang(d); renderPeserta(); renderTim(); });
 
   renderPeserta();
   renderTim();

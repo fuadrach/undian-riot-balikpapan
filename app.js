@@ -368,6 +368,13 @@
      PENYIMPANAN
      ========================================================= */
   function save() {
+    if (window.Store) {
+      Store.simpan({
+        raw: state.raw, dedupe: state.dedupe,
+        hadiah: state.hadiah, sesi: state.sesi
+      });
+      return;
+    }
     try {
       const lama = JSON.parse(localStorage.getItem(LS_STATE) || '{}') || {};
       lama.raw = state.raw;
@@ -1272,10 +1279,56 @@
     refresh();
   });
 
+  // pasang data yang datang dari Store ke dalam state
+  function pasangData(d) {
+    state.raw = (d.raw || []).map(function (p) {
+      return {
+        name: rapikanNama(p.name),
+        g: p.g === 'P' ? 'P' : 'L',
+        t: p.t === false ? false : true,
+        u: p.u === false ? false : true,
+        h: p.h === true,
+        jam: typeof p.jam === 'string' ? p.jam : ''
+      };
+    });
+    state.dedupe = !!d.dedupe;
+    if (Array.isArray(d.hadiah) && d.hadiah.length) state.hadiah = d.hadiah.slice();
+    state.sesi = (d.sesi || []).map(function (x) {
+      return {
+        prize: x.prize,
+        winners: (x.winners || []).map(function (w) { return { name: rapikanNama(w.name) }; })
+      };
+    });
+    applyDedupe();
+  }
+
+  function gambarUlangSemua(label) {
+    el.chkDedupe.checked = state.dedupe;
+    renderHadiah();
+    renderPeserta(label);
+    refresh();
+  }
+
   /* ---------- INIT ---------- */
-  load();
-  el.chkDedupe.checked = state.dedupe;
-  renderHadiah();
-  renderPeserta(state.raw.length ? 'data tersimpan' : '');
-  refresh();
+  if (window.Store) {
+    // jangan tarik perubahan dari perangkat lain saat roll sedang berjalan
+    Store.tundaSaat(function () {
+      return state.phase === 'rolling' || state.phase === 'stopping';
+    });
+    Store.dengar(function (d) {
+      pasangData(d);
+      gambarUlangSemua('diperbarui dari perangkat lain');
+    });
+    load();                       // tampilkan cadangan lokal lebih dulu
+    gambarUlangSemua(state.raw.length ? 'data tersimpan' : '');
+    Store.muat(function (d, mode) {
+      pasangData(d);
+      gambarUlangSemua(state.raw.length
+        ? (mode === 'server' ? 'data bersama (server)' : 'data tersimpan')
+        : '');
+    });
+  } else {
+    load();
+    gambarUlangSemua(state.raw.length ? 'data tersimpan' : '');
+  }
 })();

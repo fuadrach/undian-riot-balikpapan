@@ -10,6 +10,8 @@ http://localhost/undian/
 | File | Fungsi |
 |---|---|
 | `index.html` | Halaman panggung undian (pengaturan, pengacakan live, papan pemenang) |
+| `api.php` | Penyimpan data bersama di server (berkas JSON, dikunci saat ditulis) |
+| `store.js` | Lapisan data klien: pakai server bila ada, localStorage bila tidak |
 | `absensi.html` | Halaman Absensi, dirancang untuk HP (cari, tandai hadir, tambah peserta) |
 | `peserta.html` | Jendela Kelola Peserta (cari, tambah, ubah, hapus nama, tandai L/P) |
 | `tim.html` | Pembagian tim acak dengan perempuan merata |
@@ -37,6 +39,41 @@ http://localhost/undian/
    langsung di halaman ini — dikelompokkan per hadiah, bisa dicetak/PDF atau diunduh ke Excel.
 5. **Reset** — **RESET SEMUA PENGUNDIAN** (dengan konfirmasi) menghapus seluruh hasil dan
    mengembalikan semua nama ke kotak undian. Daftar peserta tidak ikut terhapus.
+
+## Dipakai beberapa perangkat sekaligus
+
+Aplikasi berjalan dalam dua mode, dipilih otomatis saat halaman dibuka:
+
+| Mode | Kapan | Data disimpan di |
+|---|---|---|
+| **server** | dijalankan lewat XAMPP (ada `api.php`) | `data/state.json` di server |
+| **lokal** | tanpa server, mis. dari GitHub Pages | `localStorage` browser |
+
+Pada mode **server**, HP untuk absensi dan laptop untuk undian membaca serta menulis
+data yang sama. Perubahan dari perangkat lain masuk sendiri dalam ~2,5 detik, tanpa
+perlu muat ulang. Pada mode **lokal**, tiap perangkat berdiri sendiri seperti versi lama.
+
+**Cara memakai dari beberapa perangkat (satu WiFi):**
+
+1. Jalankan XAMPP di laptop, lalu cari alamat IP-nya (`ipconfig` → mis. `192.168.1.10`).
+2. Di laptop buka `http://localhost/undian/` untuk mengundi.
+3. Di HP buka `http://192.168.1.10/undian/absensi.html` untuk mengabsen.
+   Pastikan Apache mengizinkan akses dari jaringan lokal (bawaan XAMPP: sudah).
+
+**Hal yang dijaga:**
+
+- Penulisan memakai kunci berkas (`flock`), jadi dua perangkat yang menyimpan
+  bersamaan tidak merusak data.
+- Tiap halaman hanya menulis bagian miliknya (`raw`, `sesi`, `tim`), jadi HP yang
+  mengabsen tidak akan menimpa hasil undian yang baru dibuat di laptop.
+- Menandai hadir dan menambah peserta dikirim sebagai perintah bertarget per nama,
+  bukan menimpa seluruh daftar — aman walau beberapa orang mengabsen bersamaan.
+- Selama roll undian berjalan, penarikan data dari server ditahan supaya tampilan
+  tidak berubah di tengah pengundian.
+- localStorage tetap diisi sebagai cadangan, jadi bila WiFi putus di tengah acara
+  halaman yang sudah terbuka masih bisa dipakai.
+
+Folder `data/` tidak ikut ke repo (ada di `.gitignore`) karena berisi data acara.
 
 ## Absensi (`absensi.html`) — saringan pertama
 Halaman ini dibuat untuk dipegang di HP saat menyambut tamu.

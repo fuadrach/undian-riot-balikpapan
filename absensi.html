@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;600;800&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=87">
+<link rel="stylesheet" href="style.css?v=88">
 <style>
   /* ====== halaman absensi: dirancang untuk layar HP dulu ====== */
   body.absen-body{min-height:100vh;display:flex;flex-direction:column}
@@ -163,6 +163,7 @@
   </div>
 </div>
 
+<script src="store.js?v=88"></script>
 <script>
 (function () {
   var LS_STATE = 'undian_riot_bpp_state_v2';
@@ -191,15 +192,11 @@
     };
   }
 
-  var st = baca();
-  if (!st.raw) st.raw = [];
-  st.raw = st.raw.map(rapikan);
-
+  var st = { raw: [] };
   var filter = 'belum';   // antrean absen: yang sudah hadir langsung hilang dari daftar
 
   function simpan() {
-    st.savedAt = Date.now();
-    localStorage.setItem(LS_STATE, JSON.stringify(st));
+    Store.simpan({ raw: st.raw });
   }
 
   /* ---------- dialog konfirmasi ---------- */
@@ -270,9 +267,11 @@
   }
 
   var timerPergi = [];
+  var sedangMemudar = 0;          // berapa baris yang masih menunggu memudar
   function bersihkanTimer() {
     timerPergi.forEach(function (t) { clearTimeout(t); });
     timerPergi = [];
+    sedangMemudar = 0;
   }
 
   function render() {
@@ -334,10 +333,10 @@
       if (p.h === mau) return;            // sudah pada status itu
       p.h = mau;
       p.jam = p.h ? jamSekarang() : '';
-      simpan();
+      Store.tandaiHadir(p.name, p.h, p.jam);
 
       // batalkan jadwal menghilang bila barisnya ditekan lagi
-      if (row._t) { clearTimeout(row._t); row._t = null; }
+      if (row._t) { clearTimeout(row._t); row._t = null; sedangMemudar--; }
       row.classList.remove('pergi');
       row.classList.remove('hilang');
 
@@ -348,6 +347,7 @@
       // barisnya meluncur keluar dari daftar
       var cocok = filter === 'semua' || (filter === 'hadir' ? p.h : !p.h);
       if (!cocok) {
+        sedangMemudar++;
         row._t = setTimeout(function () {
           row._t = null;
           // animasi kedip dilepas dulu: selama ia masih berjalan, nilainya
@@ -357,6 +357,7 @@
           // daftar disegarkan (cari, ganti tab, tambah peserta, atau muat ulang)
           row.classList.add('pergi');
           var t2 = setTimeout(function () {
+            sedangMemudar--;
             row.classList.add('hilang');
             var semua = $('list').querySelectorAll('.arow');
             var tersisa = 0;
@@ -411,10 +412,12 @@
     var tambah = function () {
       // ditambahkan lewat absensi = orangnya sedang di tempat:
       // langsung hadir, ikut undian (u), dan ikut tim (t)
-      st.raw.push({ name: nama, g: jkBaru, t: true, u: true, h: true, jam: jamSekarang() });
+      var baru = { name: nama, g: jkBaru, t: true, u: true, h: true, jam: jamSekarang() };
+      st.raw.push(baru);
+      Store.tambahPeserta(baru);
       $('namaBaru').value = '';
       $('q').value = '';
-      simpan(); render();
+      render();
       $('namaBaru').focus();
     };
 
@@ -431,16 +434,42 @@
     if (e.key === 'Enter') { e.preventDefault(); tambahPeserta(); }
   });
 
-  /* ---------- ikut berubah bila halaman lain mengubah data ---------- */
+  /* ---------- perubahan dari perangkat / halaman lain ---------- */
+  function terapkan(d) {
+    st = d;
+    st.raw = (st.raw || []).map(rapikan);
+  }
+
+  // tunda penyegaran selama masih ada baris yang sedang memudar, supaya
+  // daftar tidak melompat di bawah jari operator
+  var perluSegar = false;
+  function segarkanBilaAman() {
+    if (!perluSegar) return;
+    if (sedangMemudar > 0) { setTimeout(segarkanBilaAman, 600); return; }
+    perluSegar = false;
+    render();
+  }
+
+  Store.dengar(function (d) {
+    terapkan(d);
+    perluSegar = true;
+    segarkanBilaAman();
+  });
+
   window.addEventListener('storage', function (e) {
     if (e.key !== LS_STATE) return;
-    st = baca();
-    if (!st.raw) st.raw = [];
-    st.raw = st.raw.map(rapikan);
+    terapkan(baca());
     render();
   });
 
-  render();
+  Store.muat(function (d, mode) {
+    terapkan(d);
+    render();
+    if (mode === 'lokal') {
+      document.querySelector('.absen-head p').textContent +=
+        ' · data lokal (tanpa server)';
+    }
+  });
 })();
 </script>
 </body>

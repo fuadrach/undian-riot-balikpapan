@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;600;800&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=87">
+<link rel="stylesheet" href="style.css?v=88">
 </head>
 <body class="manage-body">
 <div class="sky"></div>
@@ -75,6 +75,7 @@
   </div>
 </div>
 
+<script src="store.js?v=88"></script>
 <script>
 (function () {
   'use strict';
@@ -94,9 +95,11 @@
     catch(e){ return s.replace(/(^|[^a-z0-9])([a-z0-9])/g, function(m,a,b){return a+b.toUpperCase();}); }
   }
 
-  var st = read();
-  if (!st.raw) st.raw = [];
-  st.raw = st.raw.map(function (p) { return { name: rapikanNama(p.name), g: p.g === 'P' ? 'P' : 'L', t: p.t === false ? false : true, u: p.u === false ? false : true, h: p.h === true, jam: typeof p.jam === 'string' ? p.jam : '' }; });
+  var st = { raw: [] };
+  function pasang(d) {
+    st = d;
+    st.raw = (st.raw || []).map(function (p) { return { name: rapikanNama(p.name), g: p.g === 'P' ? 'P' : 'L', t: p.t === false ? false : true, u: p.u === false ? false : true, h: p.h === true, jam: typeof p.jam === 'string' ? p.jam : '' }; });
+  }
 
   var filter = 'semua';
   var pilih = new Set();      // index peserta yang dicentang
@@ -129,8 +132,7 @@
   var $new = document.getElementById('newName');
 
   function persist() {
-    st.savedAt = Date.now();                 // pastikan nilai selalu berubah
-    localStorage.setItem(LS_STATE, JSON.stringify(st));
+    Store.simpan({ raw: st.raw, sesi: st.sesi || [] });
   }
 
   function render() {
@@ -422,13 +424,16 @@
     setTimeout(function () { if (!window.closed) location.href = 'index.html'; }, 250);
   });
 
-  // ikut berubah bila halaman undian mengubah daftar peserta
+  // ikut berubah bila perangkat atau halaman lain mengubah data
+  Store.dengar(function (d) { pasang(d); render(); });
+
   window.addEventListener('storage', function (e) {
     if (e.key !== LS_STATE) return;
-    st = read(); if (!st.raw) st.raw = [];
-    st.raw = st.raw.map(function (p) { return { name: rapikanNama(p.name), g: p.g === 'P' ? 'P' : 'L', t: p.t === false ? false : true, u: p.u === false ? false : true, h: p.h === true, jam: typeof p.jam === 'string' ? p.jam : '' }; });
+    pasang(read());
     render();
   });
+
+  Store.muat(function (d) { pasang(d); render(); });
 
   render();
   $q.focus();
