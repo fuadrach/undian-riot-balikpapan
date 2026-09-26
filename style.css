@@ -764,3 +764,14 @@ main.wrap > nav,
 
 /* kolom "isi pengundian" hanya untuk dibaca */
 #jumlahUndi[readonly]{cursor:default;opacity:.9}
+
+/* ===== garis pemisah antar hadiah pada papan pengundian ===== */
+.slot-sep{flex:1 0 100%;width:100%;display:flex;align-items:center;gap:12px;
+  margin:10px 0 2px}
+.slot-sep .ln{flex:1;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,212,121,.55),transparent)}
+.slot-sep b{flex:0 0 auto;font-size:.66rem;font-weight:700;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--gold);opacity:.85;white-space:nowrap;
+  max-width:60%;overflow:hidden;text-overflow:ellipsis}
+.slot-sep:first-child{margin-top:0}
+@media print{ .slot-sep .ln{background:#d9b26a} }

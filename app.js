@@ -921,6 +921,18 @@
   /* =========================================================
      TEKS PEMENANG & KIRIM KE WHATSAPP
      ========================================================= */
+  // pecah daftar pemenang jadi kelompok berurutan per hadiah
+  function kelompokHadiah(winners) {
+    const grup = [];
+    (winners || []).forEach(function (w) {
+      const nama = w.prize || '';
+      const akhir = grup[grup.length - 1];
+      if (akhir && akhir.prize === nama) akhir.winners.push(w);
+      else grup.push({ prize: nama, winners: [w] });
+    });
+    return grup;
+  }
+
   // daftar: [{judul, winners:[{name, prize}]}] -> teks siap kirim (format WhatsApp)
   function teksDaftar(judul, daftar) {
     let t = '*' + judul + '*\n' +
@@ -929,9 +941,10 @@
     let total = 0;
     daftar.forEach(function (s) {
       t += '\n*' + s.judul + '*\n';
-      const nomor = nomorPerHadiah(s.winners);
-      s.winners.forEach(function (w, i) {
-        t += nomor[i] + '. ' + w.name + (w.prize ? ' [ ' + w.prize + ' ]' : '') + '\n';
+      kelompokHadiah(s.winners).forEach(function (g) {
+        t += '\n*' + String(g.prize).toUpperCase() +
+             ' [' + g.winners.length + ' HADIAH]*\n';
+        g.winners.forEach(function (w, i) { t += (i + 1) + '. ' + w.name + '\n'; });
       });
       total += s.winners.length;
     });
@@ -1004,8 +1017,17 @@
   function renderSlots() {
     if (!state.current) { el.slots.innerHTML = ''; return; }
     const n = state.current.slots.length;
-    let h = '';
-    for (let i = 0; i < n; i++) h += slotHTML(i, state.current.winners[i]);
+    let h = '', hadiahLalu = null;
+    for (let i = 0; i < n; i++) {
+      // garis pemisah tiap kali hadiahnya berganti
+      const hadiah = state.current.slots[i] || '';
+      if (hadiah !== hadiahLalu) {
+        h += '<div class="slot-sep"><span class="ln"></span>' +
+             '<b>' + esc(hadiah) + '</b><span class="ln"></span></div>';
+        hadiahLalu = hadiah;
+      }
+      h += slotHTML(i, state.current.winners[i]);
+    }
     el.slots.innerHTML = h;
     el.slots.classList.toggle('single', n === 1);
     el.slots.classList.toggle('fit', n > 1 && n <= 5);   // 2–5 pemenang: satu baris penuh
