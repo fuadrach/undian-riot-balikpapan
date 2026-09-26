@@ -1021,7 +1021,7 @@
       const hadiah = state.current.slots[i] || '';
       if (hadiah !== hadiahLalu) {
         h += '<div class="slot-sep"><span class="ln"></span>' +
-             '<b>' + esc(hadiah) + '</b><span class="ln"></span></div>';
+             '<b>HADIAH ' + esc(hadiah) + '</b><span class="ln"></span></div>';
         hadiahLalu = hadiah;
       }
       h += slotHTML(i, state.current.winners[i]);
