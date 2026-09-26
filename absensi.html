@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;600;800&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=84">
+<link rel="stylesheet" href="style.css?v=87">
 <style>
   /* ====== halaman absensi: dirancang untuk layar HP dulu ====== */
   body.absen-body{min-height:100vh;display:flex;flex-direction:column}
@@ -55,9 +55,15 @@
     100%{background:rgba(37,211,102,.1);transform:scale(1)}
   }
   @media(prefers-reduced-motion:reduce){ .arow.kedip{animation:none} }
-  /* setelah warnanya sempat terlihat, baris meluncur keluar dari antrean */
-  .arow.pergi{opacity:0;transform:translateX(22px);
+  /* setelah warnanya sempat terlihat, baris memudar keluar dari antrean.
+     Elemennya sengaja dibiarkan di tempat (cuma tak terlihat) supaya nama
+     di bawahnya tidak ikut naik — mengurangi risiko salah tekan. */
+  .arow.pergi{opacity:0;pointer-events:none;transform:translateX(22px);
     transition:opacity .28s ease,transform .28s ease}
+  /* penutup pasti: visibility tidak ikut dianimasikan, jadi tetap berlaku
+     walau transisi dibekukan browser (mis. jendela sedang tidak terlihat),
+     dan ruang barisnya tetap dipakai */
+  .arow.hilang{visibility:hidden}
   .ano{flex:0 0 26px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
     font-size:.7rem;background:rgba(255,212,121,.16);color:var(--gold)}
   .anama{flex:1;min-width:0;font-size:1rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -333,6 +339,7 @@
       // batalkan jadwal menghilang bila barisnya ditekan lagi
       if (row._t) { clearTimeout(row._t); row._t = null; }
       row.classList.remove('pergi');
+      row.classList.remove('hilang');
 
       perbaruiBaris(row, p);
       perbaruiHitung();
@@ -343,13 +350,21 @@
       if (!cocok) {
         row._t = setTimeout(function () {
           row._t = null;
+          // animasi kedip dilepas dulu: selama ia masih berjalan, nilainya
+          // mengalahkan opacity milik .pergi dan barisnya tak jadi memudar
+          row.classList.remove('kedip');
+          // barisnya memudar di tempat; ruangnya tetap dipakai sampai
+          // daftar disegarkan (cari, ganti tab, tambah peserta, atau muat ulang)
           row.classList.add('pergi');
-          // hanya baris ini yang dibuang — baris lain yang baru ditandai
-          // tetap mendapat jatah 2 detiknya sendiri
           var t2 = setTimeout(function () {
-            if (row.parentNode) row.parentNode.removeChild(row);
-            if (!$('list').querySelector('.arow')) render();
-          }, 300);
+            row.classList.add('hilang');
+            var semua = $('list').querySelectorAll('.arow');
+            var tersisa = 0;
+            Array.prototype.forEach.call(semua, function (x) {
+              if (!x.classList.contains('pergi')) tersisa++;
+            });
+            if (!tersisa) render();      // antrean habis: tampilkan pesan penutup
+          }, 320);
           timerPergi.push(t2);
         }, 2000);
         timerPergi.push(row._t);
