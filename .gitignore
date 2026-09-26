@@ -9,5 +9,7 @@ desktop.ini
 *.csv
 !template*.xlsx
 
-# data acara yang ditulis server (jangan ikut ke repo)
-data/
+# data acara yang ditulis server (jangan ikut ke repo),
+# tapi pelindung foldernya tetap ikut supaya berlaku juga di hosting
+data/*
+!data/.htaccess

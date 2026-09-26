@@ -1,0 +1,9 @@
+# Berkas data acara tidak boleh diunduh lewat browser.
+# api.php tetap bisa membacanya karena akses dari sisi server.
+<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+  Order allow,deny
+  Deny from all
+</IfModule>

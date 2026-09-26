@@ -53,6 +53,20 @@ function siapkanFolder() {
     if (!is_dir(DIR_DATA) && !@mkdir(DIR_DATA, 0777, true) && !is_dir(DIR_DATA)) {
         balas(array('error' => 'Folder data tidak bisa dibuat. Periksa izin tulis.'), 500);
     }
+    // halangi berkas data diunduh langsung lewat browser
+    $pelindung = DIR_DATA . '/.htaccess';
+    if (!is_file($pelindung)) {
+        @file_put_contents($pelindung,
+            "<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
+" .
+            "<IfModule !mod_authz_core.c>
+  Order allow,deny
+  Deny from all
+</IfModule>
+");
+    }
 }
 
 /** Buka berkas terkunci, lalu jalankan $kerja($data). Kembalikan data akhir. */

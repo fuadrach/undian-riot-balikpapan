@@ -838,13 +838,11 @@
     const r = eff[terpilih - 1];
     el.jumlahUndi.value = r ? ringkasRonde(r) : '';
 
-    const totalRencana = eff.reduce(function (a, x) { return a + jumlahRonde(x); }, 0);
-    const hadirOK = jmlHadirStatus(true), hadirNOT = jmlHadirStatus(false);
     const belum = state.participants.length - jmlHadir();
+    const totalHadiah = eff.reduce(function (a, x) { return a + jumlahRonde(x); }, 0);
 
     el.poolNote.textContent = state.participants.length
-      ? totalRencana + ' hadiah untuk ' + jmlHadir() + ' peserta hadir' +
-        ' (' + hadirOK + ' ikut undian · ' + hadirNOT + ' panitia)' +
+      ? state.participants.length + ' peserta undian · ' + totalHadiah + ' hadiah' +
         (belum ? ' · 🚷 ' + belum + ' belum hadir' : '') +
         (state.sesi.length ? ' · ' + state.sesi.length + ' pengundian selesai' : '')
       : 'Upload daftar peserta dulu di panel Data Peserta.';
