@@ -931,22 +931,29 @@
     return grup;
   }
 
+  // ikon kecil untuk tiap jenis hadiah
+  function emotHadiah(prize) {
+    return hadiahPanitia(prize) ? '🎖️' : '🎁';
+  }
+
   // daftar: [{judul, winners:[{name, prize}]}] -> teks siap kirim (format WhatsApp)
   function teksDaftar(judul, daftar) {
+    const GARIS = '━━━━━━━━━━━━━━━';
     let t = '*' + judul + '*\n' +
             'Chill n Sunset — Mini Gath Riot Balikpapan\n' +
             'Batakan Village, 27 September 2026\n';
     let total = 0;
     daftar.forEach(function (s) {
-      t += '\n*' + s.judul + '*\n';
-      kelompokHadiah(s.winners).forEach(function (g) {
-        t += '\n*' + String(g.prize).toUpperCase() +
-             ' [' + g.winners.length + ' HADIAH]*\n';
+      // judul pengundian diapit garis; blok hadiah pertama langsung menyusul
+      t += '\n' + GARIS + '\n*🎲 ' + s.judul + '*\n' + GARIS + '\n';
+      kelompokHadiah(s.winners).forEach(function (g, gi) {
+        t += (gi ? '\n' : '') + '*' + emotHadiah(g.prize) + ' ' +
+             String(g.prize).toUpperCase() + ' [' + g.winners.length + ' HADIAH]*\n';
         g.winners.forEach(function (w, i) { t += (i + 1) + '. ' + w.name + '\n'; });
       });
       total += s.winners.length;
     });
-    t += '\n_Total ' + total + ' pemenang' +
+    t += '\n' + GARIS + '\n_Total ' + total + ' pemenang' +
          (daftar.length > 1 ? ' dari ' + daftar.length + ' pengundian' : '') + '_';
     return t;
   }
