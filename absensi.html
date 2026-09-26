@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;600;800&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=88">
+<link rel="stylesheet" href="style.css?v=89">
 <style>
   /* ====== halaman absensi: dirancang untuk layar HP dulu ====== */
   body.absen-body{min-height:100vh;display:flex;flex-direction:column}
@@ -163,7 +163,7 @@
   </div>
 </div>
 
-<script src="store.js?v=88"></script>
+<script src="store.js?v=89"></script>
 <script>
 (function () {
   var LS_STATE = 'undian_riot_bpp_state_v2';
@@ -280,18 +280,25 @@
     $('btnClr').classList.toggle('hidden', !q);
     perbaruiHitung();
 
+    // saat mencari, daftar dirapatkan seperti biasa; tanpa pencarian,
+    // tab "Belum Hadir" menyisakan lubang di tempat yang sudah hadir
+    var sisakanLubang = (filter === 'belum' && !q);
+
     var rows = st.raw.map(function (p, i) { return { p: p, i: i }; })
       .filter(function (r) { return !q || r.p.name.toLowerCase().indexOf(q) !== -1; })
       .filter(function (r) {
         if (filter === 'hadir') return r.p.h;
-        if (filter === 'belum') return !r.p.h;
+        if (filter === 'belum') return sisakanLubang || !r.p.h;
         return true;
       });
+
+    // baris yang cuma jadi lubang tidak dihitung sebagai isi daftar
+    var terlihat = rows.filter(function (r) { return !(sisakanLubang && r.p.h); }).length;
 
     if (!st.raw.length) {
       $('list').innerHTML = '<div class="absen-kosong">Belum ada peserta.<br>' +
         'Tekan <b>＋ Tambah Peserta</b>, atau upload daftar Excel di halaman undian.</div>';
-    } else if (!rows.length) {
+    } else if (!terlihat) {
       $('list').innerHTML = '<div class="absen-kosong">' +
         (q ? 'Tidak ada nama yang cocok dengan pencarian.'
            : (filter === 'hadir' ? 'Belum ada yang ditandai hadir.'
@@ -299,7 +306,9 @@
         '</div>';
     } else {
       $('list').innerHTML = rows.map(function (r) {
-        return '<div class="arow' + (r.p.h ? ' hadir' : '') + '" data-i="' + r.i + '">' +
+        var lubang = sisakanLubang && r.p.h;
+        return '<div class="arow' + (r.p.h ? ' hadir' : '') + (lubang ? ' hilang' : '') +
+          '" data-i="' + r.i + '">' +
           '<span class="ano">' + (r.i + 1) + '</span>' +
           '<span class="anama" title="' + esc(r.p.name) + '">' + esc(r.p.name) + '</span>' +
           (r.p.h && r.p.jam ? '<span class="ajam">' + esc(r.p.jam) + '</span>' : '') +
