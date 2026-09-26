@@ -766,14 +766,13 @@ main.wrap > nav,
 #jumlahUndi[readonly]{cursor:default;opacity:.9}
 
 /* ===== garis pemisah antar hadiah pada papan pengundian ===== */
-.slot-sep{flex:1 0 100%;width:100%;display:flex;align-items:center;gap:16px;
-  margin:18px 0 8px}
-.slot-sep .ln{flex:1;height:2px;border-radius:2px;
-  background:linear-gradient(90deg,transparent,rgba(255,212,121,.75),transparent)}
+.slot-sep{flex:1 0 100%;width:100%;display:flex;align-items:center;gap:12px;
+  margin:14px 0 6px}
+.slot-sep .ln{flex:1;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,212,121,.6),transparent)}
 .slot-sep b{flex:0 0 auto;font-family:'Playfair Display',serif;
-  font-size:clamp(1rem,1.9vw,1.55rem);font-weight:900;letter-spacing:.12em;
-  text-transform:uppercase;color:var(--gold);white-space:nowrap;
-  text-shadow:0 2px 18px rgba(255,212,121,.45);
+  font-size:clamp(.78rem,1.3vw,1rem);font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--gold);white-space:nowrap;opacity:.92;
   max-width:72%;overflow:hidden;text-overflow:ellipsis}
 .slot-sep:first-child{margin-top:0}
 @media print{ .slot-sep .ln{background:#d9b26a} }
@@ -782,5 +781,5 @@ main.wrap > nav,
 @media(max-width:620px){
   .slot-sep{gap:10px;margin:14px 0 6px}
   .slot-sep b{white-space:normal;max-width:none;flex:1 1 auto;text-align:center;
-    letter-spacing:.06em;font-size:clamp(.95rem,4.2vw,1.2rem);line-height:1.25}
+    letter-spacing:.05em;font-size:clamp(.78rem,3.2vw,.95rem);line-height:1.3}
 }

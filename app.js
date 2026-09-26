@@ -931,21 +931,22 @@
     return grup;
   }
 
-  // ikon kecil untuk tiap jenis hadiah
+  // Ikon dipilih yang tanpa variation selector (U+FE0F) supaya tampil
+  // sama di semua ponsel saat dikirim lewat WhatsApp.
   function emotHadiah(prize) {
-    return hadiahPanitia(prize) ? '🎖️' : '🎁';
+    return hadiahPanitia(prize) ? '🏅' : '🎁';
   }
 
   // daftar: [{judul, winners:[{name, prize}]}] -> teks siap kirim (format WhatsApp)
   function teksDaftar(judul, daftar) {
+    // WhatsApp tidak punya garis bawah, jadi dipakai garis karakter
     const GARIS = '━━━━━━━━━━━━━━━';
-    let t = '*' + judul + '*\n' +
+    let t = '*🏆 ' + judul + '*\n' +
             'Chill n Sunset — Mini Gath Riot Balikpapan\n' +
             'Batakan Village, 27 September 2026\n';
     let total = 0;
     daftar.forEach(function (s) {
-      // judul pengundian diapit garis; blok hadiah pertama langsung menyusul
-      t += '\n' + GARIS + '\n*🎲 ' + s.judul + '*\n' + GARIS + '\n';
+      t += '\n*🎲 ' + s.judul + '*\n' + GARIS + '\n';
       kelompokHadiah(s.winners).forEach(function (g, gi) {
         t += (gi ? '\n' : '') + '*' + emotHadiah(g.prize) + ' ' +
              String(g.prize).toUpperCase() + ' [' + g.winners.length + ' HADIAH]*\n';
@@ -953,7 +954,7 @@
       });
       total += s.winners.length;
     });
-    t += '\n' + GARIS + '\n_Total ' + total + ' pemenang' +
+    t += '\n_Total ' + total + ' pemenang' +
          (daftar.length > 1 ? ' dari ' + daftar.length + ' pengundian' : '') + '_';
     return t;
   }
@@ -966,7 +967,7 @@
   }
 
   function teksSemuaSesi() {
-    return teksDaftar('🏆 HASIL SEMENTARA UNDIAN', daftarSesi());
+    return teksDaftar('HASIL SEMENTARA UNDIAN', daftarSesi());
   }
 
   // buka WhatsApp dengan pesan yang sudah terisi
@@ -1028,7 +1029,8 @@
       const hadiah = state.current.slots[i] || '';
       if (hadiah !== hadiahLalu) {
         h += '<div class="slot-sep"><span class="ln"></span>' +
-             '<b>HADIAH ' + esc(hadiah) + '</b><span class="ln"></span></div>';
+             '<b>' + emotHadiah(hadiah) + ' HADIAH ' + esc(hadiah) + '</b>' +
+             '<span class="ln"></span></div>';
         hadiahLalu = hadiah;
       }
       h += slotHTML(i, state.current.winners[i]);
@@ -1131,7 +1133,7 @@
 
     el.undiForm.classList.add('hidden');
     el.stage.classList.remove('hidden');
-    el.stagePrize.textContent = 'PENGUNDIAN KE-' + ronde + ' · ' + slots.length + ' HADIAH';
+    el.stagePrize.textContent = '🎲 PENGUNDIAN KE-' + ronde + ' · ' + slots.length + ' HADIAH';
     renderSlots();
     allSlots().forEach(function (s) { s.classList.add('rolling'); });
     el.statusLine.textContent = 'MENGUNDI ' + slots.length + ' pemenang (' + ringkasRonde(r) +
@@ -1284,7 +1286,7 @@
       '</div>' +
       '<p class="mini-note" id="waNote" style="text-align:center"></p>';
 
-    function teksPemenang() { return teksDaftar('🏆 PEMENANG UNDIAN', rekap); }
+    function teksPemenang() { return teksDaftar('PEMENANG UNDIAN', rekap); }
 
     $('btnWaHasil').addEventListener('click', function () { kirimWA(teksPemenang(), 'waNote'); });
     $('btnSalinHasil').addEventListener('click', function () { salinTeks(teksPemenang(), 'waNote'); });
@@ -1466,7 +1468,7 @@
       const ss = state.sesi[si];
       if (!ss) return;
       const judul = 'PENGUNDIAN KE-' + (ss.ronde || (si + 1));
-      const teks = teksDaftar('🏆 PEMENANG UNDIAN', [{ judul: judul, winners: ss.winners }]);
+      const teks = teksDaftar('PEMENANG UNDIAN', [{ judul: judul, winners: ss.winners }]);
       if (act.classList.contains('wa-sesi')) kirimWA(teks, 'waNoteRiwayat');
       else salinTeks(teks, 'waNoteRiwayat');
       return;
@@ -1497,7 +1499,7 @@
     if (!act) return;
     const h = rekapHadiah()[parseInt(act.dataset.h, 10)];
     if (!h) return;
-    const teks = teksDaftar('🏆 PEMENANG UNDIAN', [h]);
+    const teks = teksDaftar('PEMENANG UNDIAN', [h]);
     if (act.classList.contains('wa-sesi')) kirimWA(teks, 'waNote');
     else salinTeks(teks, 'waNote');
   });
