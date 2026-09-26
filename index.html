@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;600;800&family=Playfair+Display:ital,wght@0,700;0,900;1,700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=89">
+<link rel="stylesheet" href="style.css?v=93">
 </head>
 <body>
 <canvas id="confetti"></canvas>
@@ -63,15 +63,15 @@
   <section class="undi-panel" id="undiForm">
     <div class="undi-grid">
       <div class="field">
-        <label>Hadiah yang diundi</label>
+        <label>Pengundian yang dijalankan</label>
         <div class="row-inline">
-          <select id="pilihHadiah"><option value="">- Pilih Hadiah -</option></select>
-          <button class="btn ghost small" id="btnKelolaHadiah" title="Tambah / ubah daftar hadiah">⚙ Kelola</button>
+          <select id="pilihHadiah"><option value="">- Pilih Pengundian -</option></select>
+          <button class="btn ghost small" id="btnKelolaHadiah" title="Lihat susunan &amp; daftar hadiah">⚙ Kelola</button>
         </div>
       </div>
       <div class="field">
-        <label>Jumlah yang diundi</label>
-        <input type="number" id="jumlahUndi" min="1" placeholder="contoh: 3">
+        <label>Isi pengundian ini</label>
+        <input type="text" id="jumlahUndi" readonly placeholder="—">
       </div>
       <div class="field">
         <label>&nbsp;</label>
@@ -80,6 +80,9 @@
     </div>
 
     <div class="hadiah-box hidden" id="hadiahBox">
+      <h4>Susunan Pengundian</h4>
+      <div id="rencanaBox"></div>
+      <p class="mini-note">Angka dalam kurung = jumlah semula sebelum menyesuaikan kehadiran.</p>
       <h4>Daftar Hadiah</h4>
       <div id="hadiahList"></div>
       <div class="hadiah-add">
@@ -148,7 +151,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="store.js?v=89"></script>
-<script src="app.js?v=89"></script>
+<script src="store.js?v=93"></script>
+<script src="app.js?v=93"></script>
 </body>
 </html>

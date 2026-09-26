@@ -740,3 +740,27 @@ main.wrap > nav,
 .tim-act{margin-left:auto;display:flex;align-items:center;gap:4px;flex:0 0 auto}
 .tim-act .sesi-act{margin-left:0;padding:4px 8px;font-size:.72rem;line-height:1}
 @media print{ .tim-act{display:none!important} }
+
+/* ===== susunan pengundian (beberapa hadiah per ronde) ===== */
+#rencanaBox{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+.rrow{padding:10px 12px;border-radius:12px;
+  background:rgba(12,4,22,.5);border:1px solid rgba(255,255,255,.1)}
+.rrow.sudah{opacity:.5}
+.rhead{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.rhead b{font-size:.86rem;color:var(--gold);letter-spacing:.03em}
+.rjml{margin-left:auto;font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;opacity:.65}
+.rjml i{font-style:normal;opacity:.7}
+.rlist{display:flex;flex-wrap:wrap;gap:6px}
+.rit{font-size:.74rem;padding:4px 9px;border-radius:999px;
+  background:rgba(255,212,121,.1);border:1px solid rgba(255,212,121,.25);color:#ffe9c2}
+.rit b{color:var(--gold)}
+.rit i{font-style:normal;opacity:.6}
+.rit.nol{opacity:.35;text-decoration:line-through}
+
+/* nama hadiah kecil di chip pemenang */
+.sesi-names .wpz{font-style:normal;font-size:.64rem;letter-spacing:.04em;
+  margin-left:6px;padding:2px 6px;border-radius:999px;
+  background:rgba(255,255,255,.1);color:#e9d9ff;opacity:.85}
+
+/* kolom "isi pengundian" hanya untuk dibaca */
+#jumlahUndi[readonly]{cursor:default;opacity:.9}

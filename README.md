@@ -40,6 +40,46 @@ http://localhost/undian/
 5. **Reset** — **RESET SEMUA PENGUNDIAN** (dengan konfirmasi) menghapus seluruh hasil dan
    mengembalikan semua nama ke kotak undian. Daftar peserta tidak ikut terhapus.
 
+## Skema pengundian
+
+Undian dijalankan **per pengundian**, bukan per hadiah. Satu pengundian menarik beberapa
+hadiah sekaligus dalam satu roll, dan tiap kartu pemenang menampilkan hadiahnya sendiri.
+
+| Pengundian | Isi | Jumlah |
+|---|---|---|
+| Ke-1 | 16 BIZNET + 5 PANITIA | 21 |
+| Ke-2 | 18 BIZNET + 5 PANITIA | 23 |
+| Ke-3 | 1 BIZNET + 2 @OTEOTE_PROJECT + 3 GULF + 2 AHY Foundation | 8 |
+| Ke-4 | 4 @OTEOTE_PROJECT + 3 GULF + 3 AHY Foundation | 10 |
+| | | **62** |
+
+**Menyesuaikan kehadiran.** Bila peserta yang hadir kurang dari 62, jumlah hadiah dipangkas
+supaya tiap orang yang hadir tetap dapat satu hadiah:
+
+- **BIZNET** berkurang sebanyak peserta ber-status *Ikut Undian = OK* yang tidak hadir.
+- **PANITIA** berkurang sebanyak peserta ber-status *Ikut Undian = NOT* yang tidak hadir.
+- Hadiah sponsor (@OTEOTE_PROJECT, GULF, AHY Foundation) jumlahnya tetap.
+- Pengurangan dibagi rata ke **Pengundian Ke-1 dan Ke-2**.
+
+Contoh: 45 peserta OK + 7 panitia hadir → BIZNET 35→28, PANITIA 10→7, total 52 hadiah;
+Ke-1 jadi 12 BIZNET + 3 PANITIA, Ke-2 jadi 15 BIZNET + 4 PANITIA.
+
+Susunan yang berlaku beserta angka semula ditampilkan di **⚙ Kelola** pada panel undian.
+
+**Penomoran.** Nomor pemenang diulang dari 1 setiap hadiahnya berganti, baik pada kartu
+saat pengundian, daftar hasil, maupun teks yang disalin.
+
+**Teks hasil** berbentuk per pengundian dengan hadiah di dalam kurung siku:
+
+```
+*PENGUNDIAN KE-1*
+1. Eka [ BIZNET ]
+2. Fu [ BIZNET ]
+...
+1. Sita [ PANITIA ]
+2. Yani [ PANITIA ]
+```
+
 ## Dipakai beberapa perangkat sekaligus
 
 Aplikasi berjalan dalam dua mode, dipilih otomatis saat halaman dibuka:

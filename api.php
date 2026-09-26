@@ -27,7 +27,7 @@ define('BERKAS', DIR_DATA . '/state.json');
 
 /** Bagian data yang boleh ditulis klien. */
 function bagianSah() {
-    return array('raw', 'dedupe', 'hadiah', 'sesi', 'tim');
+    return array('raw', 'dedupe', 'hadiah', 'rencana', 'sesi', 'tim');
 }
 
 function dataKosong() {
@@ -38,6 +38,7 @@ function dataKosong() {
         'dedupe'  => false,
         'hadiah'  => array(),
         'sesi'    => array(),   // hasil undian per sesi
+        'rencana' => array(),   // susunan tiap pengundian
         'tim'     => array()    // hasil pembagian tim
     );
 }

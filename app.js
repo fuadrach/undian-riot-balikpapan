@@ -14,9 +14,10 @@
     raw: [],                 // daftar mentah peserta {name,g,t,u}
     participants: [],        // setelah dedupe + dirapikan
     dedupe: false,
-    hadiah: ['Hadiah Utama', 'Hadiah Hiburan', 'Doorprize'],
-    sesi: [],                // [{prize, winners:[{name}]}] hasil yang sudah dikunci
-    current: null,           // sesi berjalan {prize, count, winners:[]}
+    hadiah: ['BIZNET', 'PANITIA', '@OTEOTE_PROJECT', 'GULF', 'AHY Foundation (H. Ahmad)'],
+    rencana: [],             // [{items:[{prize, jumlah}]}] susunan tiap pengundian
+    sesi: [],                // [{ronde, winners:[{name, prize}]}] hasil yang sudah dikunci
+    current: null,           // pengundian berjalan {ronde, items, slots, winners}
     phase: 'setup'           // setup | rolling | stopping | hasil
   };
 
@@ -36,7 +37,7 @@
     warnLine: $('warnLine'), poolNote: $('poolNote'),
 
     stage: $('stage'), stagePrize: $('stagePrize'), slots: $('slotsUndian'),
-    statusLine: $('statusLine'), hint: $('hint'),
+    statusLine: $('statusLine'), hint: $('hint'), rencanaBox: $('rencanaBox'),
     btnStart: $('btnStart'), btnStop: $('btnStop'), btnLagi: $('btnLagi'), btnSelesai: $('btnSelesai'),
     btnSound: $('btnSound'), btnFull: $('btnFull'),
     riwayat: $('riwayat'), hasilAkhir: $('hasilAkhir'),
@@ -367,11 +368,23 @@
   /* =========================================================
      PENYIMPANAN
      ========================================================= */
+  // hasil versi lama (satu hadiah per sesi) dibaca ulang ke bentuk baru
+  function bacaSesi(daftar) {
+    return (daftar || []).map(function (x, i) {
+      return {
+        ronde: parseInt(x.ronde, 10) || (i + 1),
+        winners: (x.winners || []).map(function (w) {
+          return { name: rapikanNama(w.name), prize: w.prize || x.prize || '' };
+        })
+      };
+    });
+  }
+
   function save() {
     if (window.Store) {
       Store.simpan({
         raw: state.raw, dedupe: state.dedupe,
-        hadiah: state.hadiah, sesi: state.sesi
+        hadiah: state.hadiah, sesi: state.sesi, rencana: state.rencana
       });
       return;
     }
@@ -401,14 +414,8 @@
       });
       state.dedupe = !!s.dedupe;
       if (Array.isArray(s.hadiah) && s.hadiah.length) state.hadiah = s.hadiah.slice();
-      if (Array.isArray(s.sesi)) {
-        state.sesi = s.sesi.map(function (x) {
-          return {
-            prize: x.prize,
-            winners: (x.winners || []).map(function (w) { return { name: rapikanNama(w.name) }; })
-          };
-        });
-      }
+      if (Array.isArray(s.sesi)) state.sesi = bacaSesi(s.sesi);
+      if (Array.isArray(s.rencana) && s.rencana.length) state.rencana = salinRencana(s.rencana);
     } catch (e) { /* noop */ }
   }
 
@@ -441,7 +448,9 @@
     dari: 1, oleh: 1, untuk: 1, dan: 1, buat: 1, by: 1, from: 1, for: 1, and: 1, the: 1,
     hadiah: 1, prize: 1, doorprize: 1, door: 1, grand: 1, main: 1, utama: 1, hiburan: 1,
     sponsor: 1, sponsored: 1, persembahan: 1, voucher: 1, kupon: 1, paket: 1, bonus: 1,
-    spesial: 1, special: 1
+    spesial: 1, special: 1,
+    // kata peran, bukan nama orang
+    panitia: 1, crew: 1, committee: 1, tim: 1, team: 1, peserta: 1, undian: 1
   };
 
   const RE_BUKAN_HURUF = (function () {
@@ -465,13 +474,160 @@
     return kataNama(nama).some(function (k) { return kata[k]; });
   }
 
+  // Hadiah yang namanya memuat "panitia" disediakan untuk peserta ber-status
+  // Ikut Undian = NOT (panitia yang bertugas). Mereka hanya ikut hadiah ini,
+  // dan peserta undian biasa tidak ikut hadiah ini.
+  function hadiahPanitia(prize) {
+    return /panitia/i.test(String(prize == null ? '' : prize));
+  }
+
+  /* =========================================================
+     RENCANA PENGUNDIAN
+     Tiap pengundian berisi beberapa hadiah sekaligus. Jumlahnya
+     menyesuaikan kehadiran: hadiah penyeimbang untuk peserta biasa
+     (BIZNET) dan untuk panitia (PANITIA) dikurangi bila ada yang
+     tidak hadir, dan pengurangannya dibagi rata ke Pengundian Ke-1
+     dan Ke-2.
+     ========================================================= */
+  const RENCANA_BAWAAN = [
+    { items: [{ prize: 'BIZNET', jumlah: 16 }, { prize: 'PANITIA', jumlah: 5 }] },
+    { items: [{ prize: 'BIZNET', jumlah: 18 }, { prize: 'PANITIA', jumlah: 5 }] },
+    { items: [{ prize: 'BIZNET', jumlah: 1 }, { prize: '@OTEOTE_PROJECT', jumlah: 2 },
+              { prize: 'GULF', jumlah: 3 }, { prize: 'AHY Foundation (H. Ahmad)', jumlah: 2 }] },
+    { items: [{ prize: '@OTEOTE_PROJECT', jumlah: 4 }, { prize: 'GULF', jumlah: 3 },
+              { prize: 'AHY Foundation (H. Ahmad)', jumlah: 3 }] }
+  ];
+
+  function salinRencana(r) {
+    return (r || []).map(function (x) {
+      return { items: (x.items || []).map(function (it) {
+        return { prize: String(it.prize == null ? '' : it.prize), jumlah: Math.max(0, parseInt(it.jumlah, 10) || 0) };
+      }) };
+    });
+  }
+
+  // hadiah penyeimbang untuk tiap kolam peserta
+  function penyeimbang(untukPanitia) {
+    const hit = {};
+    state.rencana.forEach(function (r) {
+      r.items.forEach(function (it) {
+        if (hadiahPanitia(it.prize) !== !!untukPanitia) return;
+        hit[it.prize] = (hit[it.prize] || 0) + it.jumlah;
+      });
+    });
+    let nama = '', besar = -1;
+    Object.keys(hit).forEach(function (k) { if (hit[k] > besar) { besar = hit[k]; nama = k; } });
+    return nama;
+  }
+
+  function jmlHadirStatus(ikutUndian) {
+    return state.participants.filter(function (p) {
+      return p.h && (ikutUndian ? p.u !== false : p.u === false);
+    }).length;
+  }
+
+  /* Rencana setelah disesuaikan dengan jumlah yang hadir.
+     Sisa peserta yang tidak tertampung hadiah tetap dibiarkan —
+     pengurangan hanya pada hadiah penyeimbang. */
+  function rencanaEfektif() {
+    const rencana = salinRencana(state.rencana);
+    if (!rencana.length) return rencana;
+
+    [false, true].forEach(function (untukPanitia) {
+      const nama = penyeimbang(untukPanitia);
+      if (!nama) return;
+      const kunci = nama.trim().toLowerCase();
+
+      // total hadiah selain penyeimbang untuk kolam yang sama
+      let tetap = 0, bawaan = 0;
+      const posisi = [];   // indeks ronde yang memuat hadiah penyeimbang
+      rencana.forEach(function (r, ri) {
+        r.items.forEach(function (it, ii) {
+          if (hadiahPanitia(it.prize) !== untukPanitia) return;
+          if (it.prize.trim().toLowerCase() === kunci) {
+            bawaan += it.jumlah;
+            posisi.push({ ri: ri, ii: ii, awal: it.jumlah });
+          } else tetap += it.jumlah;
+        });
+      });
+      if (!posisi.length) return;
+
+      const hadir = jmlHadirStatus(!untukPanitia);
+      let perlu = Math.max(0, hadir - tetap);        // jatah penyeimbang
+      let kurang = bawaan - perlu;                    // berapa yang harus dipangkas
+      if (kurang <= 0) return;
+
+      // pangkas dari ronde-ronde awal (Ke-1 dan Ke-2), dibagi rata
+      const sasaran = posisi.slice(0, 2).length ? posisi.slice(0, 2) : posisi;
+      let sisa = kurang;
+      // bagi rata dulu
+      const perSasaran = Math.floor(sisa / sasaran.length);
+      sasaran.forEach(function (t) {
+        const ambil = Math.min(t.awal, perSasaran);
+        rencana[t.ri].items[t.ii].jumlah -= ambil;
+        t.awal -= ambil;
+        sisa -= ambil;
+      });
+      // sisa pembagian dan kekurangan diambil berurutan
+      for (let putaran = 0; putaran < 2 && sisa > 0; putaran++) {
+        for (let i = 0; i < posisi.length && sisa > 0; i++) {
+          const t = posisi[i];
+          const kini = rencana[t.ri].items[t.ii].jumlah;
+          const ambil = Math.min(kini, sisa);
+          rencana[t.ri].items[t.ii].jumlah = kini - ambil;
+          sisa -= ambil;
+        }
+      }
+    });
+
+    return rencana;
+  }
+
+  // Nomor pemenang diulang dari 1 setiap hadiahnya berganti.
+  // daftar boleh berisi objek {prize} atau langsung nama hadiah.
+  function nomorPerHadiah(daftar) {
+    const nomor = [];
+    let sebelum = null, n = 0;
+    (daftar || []).forEach(function (x) {
+      const k = String((x && x.prize !== undefined ? x.prize : x) || '').trim().toLowerCase();
+      if (k !== sebelum) { sebelum = k; n = 0; }
+      nomor.push(++n);
+    });
+    return nomor;
+  }
+
+  function jumlahRonde(r) {
+    return r.items.reduce(function (a, it) { return a + it.jumlah; }, 0);
+  }
+
+  function ringkasRonde(r) {
+    return r.items.filter(function (it) { return it.jumlah > 0; })
+      .map(function (it) { return it.jumlah + ' ' + it.prize; }).join(' + ');
+  }
+
+  // ronde yang sudah dikunci hasilnya
+  function rondeSelesai() {
+    const set = Object.create(null);
+    state.sesi.forEach(function (s) { if (s.ronde) set[s.ronde] = 1; });
+    return set;
+  }
+
+  function rondeBerikut() {
+    const sudah = rondeSelesai();
+    const eff = rencanaEfektif();
+    for (let i = 0; i < eff.length; i++) {
+      if (!sudah[i + 1] && jumlahRonde(eff[i]) > 0) return i + 1;
+    }
+    return 0;
+  }
+
   function jmlHadir() {
     return state.participants.filter(function (p) { return p.h; }).length;
   }
 
   // peserta yang boleh diundi: HADIR, ikut undian, belum pernah menang,
   // dan (bila hadiah disebut) namanya tidak tercantum di nama hadiah itu
-  function poolUndian(prize) {
+  function poolUndian(prize, abaikanNamaHadiah) {
     const menang = Object.create(null);
     state.sesi.forEach(function (s) {
       s.winners.forEach(function (w) { menang[w.name.toLowerCase()] = 1; });
@@ -479,16 +635,20 @@
     if (state.current) {
       state.current.winners.forEach(function (w) { menang[w.name.toLowerCase()] = 1; });
     }
+    const untukPanitia = hadiahPanitia(prize);
     return state.participants.filter(function (p) {
-      return p.h && p.u !== false && !menang[p.name.toLowerCase()] &&
-             !namaAdaDiHadiah(p.name, prize);
+      if (!p.h) return false;                                  // harus hadir
+      // hadiah panitia: hanya yang NOT; hadiah lain: hanya yang ikut undian
+      if (untukPanitia ? p.u !== false : p.u === false) return false;
+      if (menang[p.name.toLowerCase()]) return false;
+      return abaikanNamaHadiah || !namaAdaDiHadiah(p.name, prize);
     });
   }
 
   // nama yang ditahan khusus untuk hadiah ini (untuk diberitahukan ke operator)
   function namaDitahan(prize) {
     if (!prize) return [];
-    return poolUndian('').filter(function (p) { return namaAdaDiHadiah(p.name, prize); })
+    return poolUndian(prize, true).filter(function (p) { return namaAdaDiHadiah(p.name, prize); })
       .map(function (p) { return p.name; });
   }
 
@@ -660,17 +820,60 @@
      TAMPILAN UMUM
      ========================================================= */
   function refresh() {
-    const prize = el.pilihHadiah.value.trim();
-    const ditahan = namaDitahan(prize);
+    const eff = rencanaEfektif();
+    const sudah = rondeSelesai();
+    const berikut = rondeBerikut();
+    // pengundian yang sudah selesai tidak dipilih lagi — langsung maju
+    let terpilih = parseInt(el.pilihHadiah.value, 10) || 0;
+    if (!terpilih || sudah[terpilih]) terpilih = berikut;
+
+    el.pilihHadiah.innerHTML = '<option value="">- Pilih Pengundian -</option>' +
+      eff.map(function (r, i) {
+        const n = i + 1, jml = jumlahRonde(r);
+        return '<option value="' + n + '"' + (n === terpilih ? ' selected' : '') + '>' +
+          'Pengundian Ke-' + n + ' · ' + jml + ' hadiah' +
+          (sudah[n] ? ' (sudah)' : '') + '</option>';
+      }).join('');
+
+    const r = eff[terpilih - 1];
+    el.jumlahUndi.value = r ? ringkasRonde(r) : '';
+
+    const totalRencana = eff.reduce(function (a, x) { return a + jumlahRonde(x); }, 0);
+    const hadirOK = jmlHadirStatus(true), hadirNOT = jmlHadirStatus(false);
     const belum = state.participants.length - jmlHadir();
+
     el.poolNote.textContent = state.participants.length
-      ? poolUndian(prize).length + ' nama masih ada di kotak undian' +
-        (belum ? ' · 🚷 ' + belum + ' belum hadir (tidak diikutkan)' : '') +
-        (state.sesi.length ? ' · ' + state.sesi.length + ' hadiah sudah diundi' : '') +
-        (ditahan.length ? ' · 🚫 ' + ditahan.join(', ') +
-          ' tidak ikut karena namanya ada di nama hadiah ini' : '')
+      ? totalRencana + ' hadiah untuk ' + jmlHadir() + ' peserta hadir' +
+        ' (' + hadirOK + ' ikut undian · ' + hadirNOT + ' panitia)' +
+        (belum ? ' · 🚷 ' + belum + ' belum hadir' : '') +
+        (state.sesi.length ? ' · ' + state.sesi.length + ' pengundian selesai' : '')
       : 'Upload daftar peserta dulu di panel Data Peserta.';
+
+    renderRencana(eff);
     renderRiwayat();
+  }
+
+  // tabel susunan pengundian
+  function renderRencana(eff) {
+    if (!el.rencanaBox) return;
+    const sudah = rondeSelesai();
+    const asli = salinRencana(state.rencana);
+    el.rencanaBox.innerHTML = eff.map(function (r, i) {
+      const n = i + 1;
+      const jml = jumlahRonde(r);
+      const jmlAsli = asli[i] ? jumlahRonde(asli[i]) : jml;
+      return '<div class="rrow' + (sudah[n] ? ' sudah' : '') + '">' +
+        '<div class="rhead"><b>Pengundian Ke-' + n + '</b>' +
+          '<span class="rjml">' + jml + ' hadiah' +
+          (jml !== jmlAsli ? ' <i>(dari ' + jmlAsli + ')</i>' : '') + '</span></div>' +
+        '<div class="rlist">' + r.items.map(function (it, j) {
+          const awal = asli[i] && asli[i].items[j] ? asli[i].items[j].jumlah : it.jumlah;
+          return '<span class="rit' + (it.jumlah === 0 ? ' nol' : '') + '">' +
+            '<b>' + it.jumlah + '</b> ' + esc(it.prize) +
+            (it.jumlah !== awal ? ' <i>(' + awal + ')</i>' : '') + '</span>';
+        }).join('') + '</div>' +
+      '</div>';
+    }).join('') || '<p class="mini-note">Belum ada susunan pengundian.</p>';
   }
 
   // nomor urut awal untuk sesi ke-idx (lanjutan dari sesi sebelumnya berhadiah sama)
@@ -688,19 +891,21 @@
     el.riwayat.innerHTML =
       '<div class="board-head small"><span class="line"></span><h2>📋 HASIL SEMENTARA</h2><span class="line"></span></div>' +
       state.sesi.map(function (s, i) {
-        const awal = awalSesi(i);
+        const judul = 'Pengundian Ke-' + (s.ronde || (i + 1));
+        const nomor = nomorPerHadiah(s.winners);
         return '<div class="sesi-card">' +
           '<div class="sesi-head">' +
-            '<span class="sesi-prize">Pengundian Ke-' + (i + 1) +
-              ' <span class="sep">|</span> ' + esc(s.prize) + '</span>' +
+            '<span class="sesi-prize">' + judul + '</span>' +
             '<span class="sesi-meta">' + s.winners.length + ' pemenang</span>' +
             '<button class="sesi-act wa-sesi" data-s="' + i + '" ' +
-              'title="Kirim pemenang ' + esc(s.prize) + ' ke WhatsApp">💬 Kirim</button>' +
+              'title="Kirim pemenang ' + esc(judul) + ' ke WhatsApp">💬 Kirim</button>' +
             '<button class="sesi-act salin-sesi" data-s="' + i + '" ' +
-              'title="Salin teks pemenang ' + esc(s.prize) + '">📋 Salin</button>' +
+              'title="Salin teks pemenang ' + esc(judul) + '">📋 Salin</button>' +
           '</div>' +
           '<div class="sesi-names">' + s.winners.map(function (w, n) {
-            return '<span title="' + esc(w.name) + '"><b class="wno">' + (awal + n + 1) + '</b>' + esc(w.name) +
+            return '<span title="' + esc(w.name) + (w.prize ? ' — ' + esc(w.prize) : '') + '">' +
+              '<b class="wno">' + nomor[n] + '</b>' + esc(w.name) +
+              (w.prize ? '<i class="wpz">' + esc(w.prize) + '</i>' : '') +
               '<button class="wx" data-s="' + i + '" data-w="' + n + '" ' +
               'title="Hapus dari daftar pemenang">×</button></span>';
           }).join('') + '</div>' +
@@ -716,26 +921,34 @@
   /* =========================================================
      TEKS PEMENANG & KIRIM KE WHATSAPP
      ========================================================= */
-  // daftar: [{prize, winners:[{name}], mulai, label}] -> teks siap kirim (format WhatsApp)
-  // `label` dipakai bila judul bloknya perlu beda dari nama hadiah
+  // daftar: [{judul, winners:[{name, prize}]}] -> teks siap kirim (format WhatsApp)
   function teksDaftar(judul, daftar) {
     let t = '*' + judul + '*\n' +
             'Chill n Sunset — Mini Gath Riot Balikpapan\n' +
             'Batakan Village, 27 September 2026\n';
     let total = 0;
     daftar.forEach(function (s) {
-      t += '\n*🎁 ' + (s.label || s.prize) + '*\n';
-      s.winners.forEach(function (w, i) { t += ((s.mulai || 0) + i + 1) + '. ' + w.name + '\n'; });
+      t += '\n*' + s.judul + '*\n';
+      const nomor = nomorPerHadiah(s.winners);
+      s.winners.forEach(function (w, i) {
+        t += nomor[i] + '. ' + w.name + (w.prize ? ' [ ' + w.prize + ' ]' : '') + '\n';
+      });
       total += s.winners.length;
     });
     t += '\n_Total ' + total + ' pemenang' +
-         (daftar.length > 1 ? ' dari ' + daftar.length + ' hadiah' : '') + '_';
+         (daftar.length > 1 ? ' dari ' + daftar.length + ' pengundian' : '') + '_';
     return t;
   }
 
-  // seluruh sesi Hasil Sementara, digabung per hadiah
+  // seluruh pengundian yang sudah dikunci
+  function daftarSesi() {
+    return state.sesi.map(function (s, i) {
+      return { judul: 'PENGUNDIAN KE-' + (s.ronde || (i + 1)), winners: s.winners };
+    });
+  }
+
   function teksSemuaSesi() {
-    return teksDaftar('🏆 HASIL SEMENTARA UNDIAN', rekapHadiah());
+    return teksDaftar('🏆 HASIL SEMENTARA UNDIAN', daftarSesi());
   }
 
   // buka WhatsApp dengan pesan yang sudah terisi
@@ -777,18 +990,20 @@
   }
 
   function slotHTML(i, w) {
-    const no = (state.current ? state.current.off || 0 : 0) + i + 1;
-    return '<div class="slot slot-main' + (w ? ' locked' : '') + '" data-i="' + i + '">' +
-      '<div class="slot-mark"><span class="slot-badge">' + no + '</span></div>' +
+    const hadiah = state.current ? (state.current.slots[i] || '') : '';
+    const noSlot = state.current ? nomorPerHadiah(state.current.slots)[i] : i + 1;
+    return '<div class="slot slot-main' + (w ? ' locked' : '') +
+      '" data-i="' + i + '" data-prize="' + esc(hadiah) + '">' +
+      '<div class="slot-mark"><span class="slot-badge">' + noSlot + '</span></div>' +
       '<div class="slot-body">' +
         '<div class="slot-name" title="' + (w ? esc(w.name) : '') + '">' + (w ? esc(w.name) : '—') + '</div>' +
-        '<div class="slot-prize">' + esc(state.current ? state.current.prize : '') + '</div>' +
+        '<div class="slot-prize">' + esc(hadiah) + '</div>' +
       '</div></div>';
   }
 
   function renderSlots() {
     if (!state.current) { el.slots.innerHTML = ''; return; }
-    const n = state.current.count;
+    const n = state.current.slots.length;
     let h = '';
     for (let i = 0; i < n; i++) h += slotHTML(i, state.current.winners[i]);
     el.slots.innerHTML = h;
@@ -809,57 +1024,91 @@
   let rollHandle = null;
 
   function flashAll() {
-    const pool = poolUndian(state.current ? state.current.prize : '');
-    if (!pool.length) return;
+    if (!state.current) return;
     const slots = allSlots();
-    const names = sampleUnique(pool, slots.length);
-    slots.forEach(function (s, i) {
+    const simpanan = Object.create(null);          // kolam per hadiah, dihitung sekali per frame
+    slots.forEach(function (s) {
       if (s.classList.contains('locked')) return;
-      const p = names[i] || pool[randInt(pool.length)];
+      const hadiah = s.dataset.prize || '';
+      let pool = simpanan[hadiah];
+      if (!pool) { pool = simpanan[hadiah] = poolUndian(hadiah); }
+      if (!pool.length) return;
+      const p = pool[randInt(pool.length)];
       s.querySelector('.slot-name').textContent = p ? p.name : '';
     });
   }
 
+  // pilih pemenang untuk seluruh isi satu pengundian
+  function pilihPemenangRonde(items) {
+    const dipakai = Object.create(null);
+    const hasil = [];
+    items.forEach(function (it) {
+      if (it.jumlah <= 0) return;
+      const pool = poolUndian(it.prize).filter(function (p) {
+        return !dipakai[p.name.toLowerCase()];
+      });
+      sampleUnique(pool, it.jumlah).forEach(function (p) {
+        dipakai[p.name.toLowerCase()] = 1;
+        hasil.push({ name: p.name, prize: it.prize });
+      });
+    });
+    return hasil;
+  }
+
   function mulaiUndian() {
     if (state.phase !== 'setup') return;
-    const prize = el.pilihHadiah.value.trim();
-    const jml = parseInt(el.jumlahUndi.value, 10);
-    const pool = poolUndian(prize);
 
-    if (!prize) { warn('Pilih hadiah terlebih dahulu.'); el.pilihHadiah.focus(); return; }
-    if (!el.jumlahUndi.value.trim() || isNaN(jml) || jml < 1) {
-      warn('Jumlah yang diundi belum diisi. Isi minimal 1.');
-      el.jumlahUndi.focus();
-      return;
-    }
+    const ronde = parseInt(el.pilihHadiah.value, 10);
+    if (!ronde) { warn('Pilih pengundian yang akan dijalankan.'); el.pilihHadiah.focus(); return; }
     if (!state.participants.length) { warn('Belum ada peserta. Upload daftar peserta dulu.'); return; }
     if (!jmlHadir()) {
       warn('Belum ada peserta yang ditandai hadir. Buka halaman Absensi dulu — ' +
            'hanya yang hadir yang ikut diundi.');
       return;
     }
-    if (jml > pool.length) {
-      const ditahan = namaDitahan(prize);
-      warn('Jumlah yang diundi (' + jml + ') melebihi sisa peserta (' + pool.length + ')' +
-        (ditahan.length ? ' — ' + ditahan.join(', ') + ' tidak diikutkan karena namanya ada di nama hadiah ini.' : '.'));
-      el.jumlahUndi.focus();
+
+    const eff = rencanaEfektif();
+    const r = eff[ronde - 1];
+    if (!r) { warn('Susunan pengundian ini tidak ditemukan.'); return; }
+
+    const items = r.items.filter(function (it) { return it.jumlah > 0; });
+    if (!items.length) {
+      warn('Pengundian Ke-' + ronde + ' tidak punya hadiah untuk diundi ' +
+           '(jumlahnya menjadi nol setelah menyesuaikan kehadiran).');
       return;
+    }
+
+    // pastikan tiap hadiah masih punya cukup calon pemenang
+    const dipakai = Object.create(null);
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const pool = poolUndian(it.prize).filter(function (p) { return !dipakai[p.name.toLowerCase()]; });
+      if (pool.length < it.jumlah) {
+        warn('Hadiah ' + it.prize + ' butuh ' + it.jumlah + ' pemenang, ' +
+             'tapi hanya ada ' + pool.length + ' nama yang berhak dan hadir.');
+        return;
+      }
+      pool.slice(0, it.jumlah).forEach(function (p) { dipakai[p.name.toLowerCase()] = 1; });
     }
     clearWarn();
 
-    // nomor kartu melanjutkan undian sebelumnya untuk hadiah yang sama
-    state.current = { prize: prize, count: jml, winners: [], off: offsetHadiah(prize) };
+    // satu slot untuk tiap hadiah yang diundi, berurutan sesuai susunan
+    const slots = [];
+    items.forEach(function (it) {
+      for (let i = 0; i < it.jumlah; i++) slots.push(it.prize);
+    });
+
+    state.current = { ronde: ronde, items: items, slots: slots, winners: [] };
     state.phase = 'rolling';
     Confetti.clear();
 
     el.undiForm.classList.add('hidden');
     el.stage.classList.remove('hidden');
-    el.stagePrize.textContent = '🎁 ' + prize.toUpperCase();
+    el.stagePrize.textContent = 'PENGUNDIAN KE-' + ronde + ' · ' + slots.length + ' HADIAH';
     renderSlots();
     allSlots().forEach(function (s) { s.classList.add('rolling'); });
-    const ditahanIni = namaDitahan(prize);
-    el.statusLine.textContent = 'MENGUNDI ' + jml + ' pemenang… tekan STOP untuk menghentikan' +
-      (ditahanIni.length ? ' · 🚫 tanpa ' + ditahanIni.join(', ') : '');
+    el.statusLine.textContent = 'MENGUNDI ' + slots.length + ' pemenang (' + ringkasRonde(r) +
+      ')… tekan STOP untuk menghentikan';
     el.btnStop.classList.remove('hidden');
     el.btnStop.disabled = false;
     el.btnLagi.classList.add('hidden');
@@ -881,8 +1130,7 @@
     el.btnStop.disabled = true;
     el.statusLine.textContent = 'Mengerem…';
 
-    const pemenang = sampleUnique(poolUndian(state.current.prize), state.current.count)
-      .map(function (p) { return { name: p.name }; });
+    const pemenang = pilihPemenangRonde(state.current.items);
 
     function paint(lock) {
       allSlots().forEach(function (s, i) {
@@ -921,9 +1169,9 @@
     el.btnStop.disabled = false;
     el.btnLagi.classList.remove('hidden');
     el.btnSelesai.classList.remove('hidden');
-    el.statusLine.innerHTML = '✔ ' + pemenang.length + ' pemenang <b>' + esc(state.current.prize) +
-      '</b> terpilih. Lanjut undi hadiah lain, atau akhiri pengundian.';
-    el.hint.textContent = 'Pengundian Lagi = undi hadiah berikutnya · Pengundian Selesai = tampilkan semua hasil.';
+    el.statusLine.innerHTML = '✔ ' + pemenang.length + ' pemenang <b>Pengundian Ke-' +
+      state.current.ronde + '</b> terpilih. Lanjut ke pengundian berikutnya, atau akhiri.';
+    el.hint.textContent = 'Pengundian Lagi = jalankan pengundian berikutnya · Pengundian Selesai = tampilkan semua hasil.';
 
     // musik hanya berbunyi selama roll — setelah berhenti tidak ada suara.
     // (AudioFX.fanfare() sengaja tidak dipanggil; fungsinya disimpan bila nanti diperlukan lagi)
@@ -938,7 +1186,7 @@
   // simpan sesi berjalan ke daftar hasil
   function kunciSesi() {
     if (state.current && state.current.winners.length) {
-      state.sesi.push({ prize: state.current.prize, winners: state.current.winners });
+      state.sesi.push({ ronde: state.current.ronde, winners: state.current.winners });
     }
     state.current = null;
     save();
@@ -951,8 +1199,6 @@
     el.stage.classList.add('hidden');
     el.slots.innerHTML = '';
     el.undiForm.classList.remove('hidden');
-    el.pilihHadiah.value = '';          // kembali ke "- Pilih Hadiah -"
-    el.jumlahUndi.value = '';
     clearWarn();
     refresh();
     el.undiForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -962,13 +1208,9 @@
   /* ---------- hasil akhir (ditampilkan di halaman ini) ---------- */
   // hadiah yang sama digabung jadi satu daftar bernomor urut
   function rekapHadiah() {
-    const urut = [], peta = {};
-    state.sesi.forEach(function (s) {
-      const k = String(s.prize).trim().toLowerCase();
-      if (peta[k]) peta[k].winners = peta[k].winners.concat(s.winners);
-      else { peta[k] = { prize: s.prize, winners: s.winners.slice() }; urut.push(peta[k]); }
+    return daftarSesi().map(function (s) {
+      return { prize: s.judul, judul: s.judul, winners: s.winners };
     });
-    return urut;
   }
 
   function renderHasilAkhir() {
@@ -978,31 +1220,32 @@
       '<div class="ann-badge">🏆 Pemenang Undian</div>' +
       rekap.map(function (s, si) {
         const besar = s.winners.length <= 3;
+        const nomor = nomorPerHadiah(s.winners);
         return '<div class="board-section">' +
-          '<div class="board-head has-act"><span class="line"></span><h2>🎁 ' +
-            esc(s.prize.toUpperCase()) + '</h2><span class="line"></span>' +
+          '<div class="board-head has-act"><span class="line"></span><h2>🎲 ' +
+            esc(s.judul.toUpperCase()) + '</h2><span class="line"></span>' +
             '<span class="bh-act">' +
               '<button class="sesi-act wa-sesi" data-h="' + si + '" ' +
-                'title="Kirim pemenang ' + esc(s.prize) + ' ke WhatsApp">💬 Kirim</button>' +
+                'title="Kirim pemenang ' + esc(s.judul) + ' ke WhatsApp">💬 Kirim</button>' +
               '<button class="sesi-act salin-sesi" data-h="' + si + '" ' +
-                'title="Salin teks pemenang ' + esc(s.prize) + '">📋 Salin</button>' +
+                'title="Salin teks pemenang ' + esc(s.judul) + '">📋 Salin</button>' +
             '</span></div>' +
           (besar
             ? '<div class="ann-main">' + s.winners.map(function (w, i) {
                 return '<div class="ann-card">' +
-                  '<div class="crown"><span class="ann-no">' + (i + 1) + '</span></div>' +
+                  '<div class="crown"><span class="ann-no">' + nomor[i] + '</span></div>' +
                   '<div class="body"><div class="nm" title="' + esc(w.name) + '">' + esc(w.name) + '</div></div>' +
-                  '<div class="pz">' + esc(s.prize) + '</div>' +
+                  '<div class="pz">' + esc(w.prize || s.prize) + '</div>' +
                 '</div>';
               }).join('') + '</div>'
             : '<div class="winners-sub">' + s.winners.map(function (w, i) {
-                return '<div class="w-sub"><div class="no">' + (i + 1) + '</div>' +
+                return '<div class="w-sub"><div class="no">' + nomor[i] + '</div>' +
                   '<div class="info"><div class="nm" title="' + esc(w.name) + '">' + esc(w.name) + '</div>' +
-                  '<div class="dt">' + esc(s.prize) + '</div></div></div>';
+                  '<div class="dt">' + esc(w.prize || s.prize) + '</div></div></div>';
               }).join('') + '</div>') +
         '</div>';
       }).join('') +
-      '<p class="ann-note">Total ' + total + ' pemenang dari ' + rekap.length + ' hadiah · ' +
+      '<p class="ann-note">Total ' + total + ' pemenang dari ' + rekap.length + ' pengundian · ' +
         poolUndian().length + ' nama tersisa di kotak undian · ' +
         new Date().toLocaleString('id-ID') + '</p>' +
       '<div class="ann-actions">' +
@@ -1022,9 +1265,10 @@
     $('btnCetakHasil').addEventListener('click', function () { window.print(); });
     $('btnKembaliUndi').addEventListener('click', tutupHasilAkhir);
     $('btnExcelHasil').addEventListener('click', function () {
-      const rows = [['Hadiah', 'No', 'Nama Pemenang']];
+      const rows = [['Pengundian', 'No', 'Nama Pemenang', 'Hadiah']];
       rekap.forEach(function (s) {
-        s.winners.forEach(function (w, i) { rows.push([s.prize, i + 1, w.name]); });
+        const nomorX = nomorPerHadiah(s.winners);
+        s.winners.forEach(function (w, i) { rows.push([s.judul, nomorX[i], w.name, w.prize || '']); });
       });
       if (typeof XLSX === 'undefined') {
         const csv = rows.map(function (r) {
@@ -1036,7 +1280,7 @@
         return;
       }
       const ws = XLSX.utils.aoa_to_sheet(rows);
-      ws['!cols'] = [{ wch: 26 }, { wch: 6 }, { wch: 30 }];
+      ws['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 30 }, { wch: 26 }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Pemenang');
       XLSX.writeFile(wb, 'pemenang-undian-chill-n-sunset.xlsx');
@@ -1194,9 +1438,8 @@
       const si = parseInt(act.dataset.s, 10);
       const ss = state.sesi[si];
       if (!ss) return;
-      const teks = teksDaftar('🏆 PEMENANG ' + String(ss.prize).toUpperCase(),
-        [{ prize: ss.prize, winners: ss.winners, mulai: awalSesi(si),
-           label: 'Pengundian Ke-' + (si + 1) + ' | ' + ss.prize }]);
+      const judul = 'PENGUNDIAN KE-' + (ss.ronde || (si + 1));
+      const teks = teksDaftar('🏆 PEMENANG UNDIAN', [{ judul: judul, winners: ss.winners }]);
       if (act.classList.contains('wa-sesi')) kirimWA(teks, 'waNoteRiwayat');
       else salinTeks(teks, 'waNoteRiwayat');
       return;
@@ -1227,7 +1470,7 @@
     if (!act) return;
     const h = rekapHadiah()[parseInt(act.dataset.h, 10)];
     if (!h) return;
-    const teks = teksDaftar('🏆 PEMENANG ' + String(h.prize).toUpperCase(), [h]);
+    const teks = teksDaftar('🏆 PEMENANG UNDIAN', [h]);
     if (act.classList.contains('wa-sesi')) kirimWA(teks, 'waNote');
     else salinTeks(teks, 'waNote');
   });
@@ -1293,12 +1536,8 @@
     });
     state.dedupe = !!d.dedupe;
     if (Array.isArray(d.hadiah) && d.hadiah.length) state.hadiah = d.hadiah.slice();
-    state.sesi = (d.sesi || []).map(function (x) {
-      return {
-        prize: x.prize,
-        winners: (x.winners || []).map(function (w) { return { name: rapikanNama(w.name) }; })
-      };
-    });
+    state.sesi = bacaSesi(d.sesi);
+    if (Array.isArray(d.rencana) && d.rencana.length) state.rencana = salinRencana(d.rencana);
     applyDedupe();
   }
 
@@ -1310,6 +1549,8 @@
   }
 
   /* ---------- INIT ---------- */
+  if (!state.rencana.length) state.rencana = salinRencana(RENCANA_BAWAAN);
+
   if (window.Store) {
     // jangan tarik perubahan dari perangkat lain saat roll sedang berjalan
     Store.tundaSaat(function () {
@@ -1317,12 +1558,14 @@
     });
     Store.dengar(function (d) {
       pasangData(d);
+      if (!state.rencana.length) state.rencana = salinRencana(RENCANA_BAWAAN);
       gambarUlangSemua('diperbarui dari perangkat lain');
     });
     load();                       // tampilkan cadangan lokal lebih dulu
     gambarUlangSemua(state.raw.length ? 'data tersimpan' : '');
     Store.muat(function (d, mode) {
       pasangData(d);
+      if (!state.rencana.length) state.rencana = salinRencana(RENCANA_BAWAAN);
       gambarUlangSemua(state.raw.length
         ? (mode === 'server' ? 'data bersama (server)' : 'data tersimpan')
         : '');

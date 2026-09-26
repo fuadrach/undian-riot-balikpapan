@@ -38,7 +38,7 @@ window.Store = (function () {
   }
 
   function kosong() {
-    return { raw: [], dedupe: false, hadiah: [], sesi: [], tim: [] };
+    return { raw: [], dedupe: false, hadiah: [], rencana: [], sesi: [], tim: [] };
   }
 
   // gabungkan bentuk lama (state + tim terpisah) jadi satu bentuk
@@ -49,6 +49,7 @@ window.Store = (function () {
       raw:    s.raw    || [],
       dedupe: !!s.dedupe,
       hadiah: s.hadiah || [],
+      rencana: s.rencana || [],
       sesi:   s.sesi   || [],
       tim:    (t && t.tim) ? t.tim : (s.tim || [])
     };
@@ -57,7 +58,7 @@ window.Store = (function () {
   // tulis balik ke localStorage dalam bentuk lama, supaya tetap jadi cadangan
   function keLokal(d) {
     var s = bacaLokal(KUNCI) || {};
-    s.raw = d.raw; s.dedupe = d.dedupe; s.hadiah = d.hadiah; s.sesi = d.sesi;
+    s.raw = d.raw; s.dedupe = d.dedupe; s.hadiah = d.hadiah; s.rencana = d.rencana; s.sesi = d.sesi;
     s.savedAt = Date.now();
     tulisLokal(KUNCI, s);
     var t = bacaLokal(KUNCI_TIM) || {};
@@ -89,7 +90,7 @@ window.Store = (function () {
           rev = d.rev;
           var bersih = {
             raw: d.raw || [], dedupe: !!d.dedupe, hadiah: d.hadiah || [],
-            sesi: d.sesi || [], tim: d.tim || []
+            rencana: d.rencana || [], sesi: d.sesi || [], tim: d.tim || []
           };
           keLokal(bersih);
           beritahu(bersih, 'server');
@@ -135,7 +136,7 @@ window.Store = (function () {
           rev = typeof d.rev === 'number' ? d.rev : 0;
           var srv = {
             raw: d.raw || [], dedupe: !!d.dedupe, hadiah: d.hadiah || [],
-            sesi: d.sesi || [], tim: d.tim || []
+            rencana: d.rencana || [], sesi: d.sesi || [], tim: d.tim || []
           };
           // server masih kosong tapi perangkat ini punya data -> naikkan
           if (!srv.raw.length && cadangan.raw.length) {
